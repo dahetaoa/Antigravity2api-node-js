@@ -3,7 +3,6 @@ import tokenManager from '../auth/token_manager.js';
 import config from '../config/config.js';
 import { generateRequestId, generateToolCallId } from '../utils/idGenerator.js';
 import AntigravityRequester from '../AntigravityRequester.js';
-import { saveBase64Image } from '../utils/imageStorage.js';
 
 // 请求客户端：优先使用 AntigravityRequester，失败则降级到 axios
 let requester = null;
@@ -280,7 +279,7 @@ function toOpenAiUsage(usageMetadata) {
 
 function parseAndEmitStreamChunk(line, state, callback) {
   if (!line.startsWith('data: ')) return;
-  
+
   try {
     const data = JSON.parse(line.slice(6));
     const parts = data.response?.candidates?.[0]?.content?.parts;
@@ -288,7 +287,7 @@ function parseAndEmitStreamChunk(line, state, callback) {
     if (data.response?.usageMetadata) {
       state.usage = toOpenAiUsage(data.response.usageMetadata);
     }
-    
+
     if (parts) {
       for (const part of parts) {
         if (part.thought === true) {
@@ -311,7 +310,7 @@ function parseAndEmitStreamChunk(line, state, callback) {
         }
       }
     }
-    
+
     // 响应结束时发送工具调用
     if (data.response?.candidates?.[0]?.finishReason && state.toolCalls.length > 0) {
       if (state.thinkingStarted) {
@@ -333,7 +332,7 @@ export async function generateAssistantResponse(requestBody, token, callback) {
   const headers = buildHeaders(token);
   const state = { thinkingStarted: false, toolCalls: [], usage: null };
   let buffer = ''; // 缓冲区：处理跨 chunk 的不完整行
-  
+
   const processChunk = (chunk) => {
     buffer += chunk;
     const lines = buffer.split('\n');
@@ -377,7 +376,7 @@ export async function generateAssistantResponse(requestBody, token, callback) {
 export async function getAvailableModels() {
   const token = await tokenManager.getToken();
   if (!token) throw new Error('没有可用的token，请运行 npm run login 获取token');
-  
+
   const headers = buildHeaders(token);
 
   try {
@@ -445,7 +444,7 @@ export async function generateAssistantResponseNoStream(requestBody, token) {
   } catch (error) {
     await handleApiError(error, token);
   }
-  
+
   // 解析响应内容
   const parts = data.response?.candidates?.[0]?.content?.parts || [];
   const usage = toOpenAiUsage(data.response?.usageMetadata);
@@ -453,7 +452,7 @@ export async function generateAssistantResponseNoStream(requestBody, token) {
   let thinkingContent = '';
   const toolCalls = [];
   const imageUrls = [];
-  
+
   for (const part of parts) {
     if (part.thought === true) {
       thinkingContent += part.text || '';
@@ -462,24 +461,24 @@ export async function generateAssistantResponseNoStream(requestBody, token) {
     } else if (part.functionCall) {
       toolCalls.push(convertToToolCall(part.functionCall));
     } else if (part.inlineData) {
-      // 保存图片到本地并获取 URL
-      const imageUrl = saveBase64Image(part.inlineData.data, part.inlineData.mimeType);
+      // 直接使用 base64 Data URL，无需保存到本地
+      const imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
       imageUrls.push(imageUrl);
     }
   }
-  
+
   // 拼接思维链标签
   if (thinkingContent) {
     content = `<think>\n${thinkingContent}\n</think>\n${content}`;
   }
-  
+
   // 生图模型：转换为 markdown 格式
   if (imageUrls.length > 0) {
     let markdown = content ? content + '\n\n' : '';
     markdown += imageUrls.map(url => `![image](${url})`).join('\n\n');
     return { content: markdown, toolCalls };
   }
-  
+
   return { content, toolCalls, usage };
 }
 
