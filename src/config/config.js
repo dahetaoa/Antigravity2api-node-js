@@ -28,8 +28,6 @@ API_KEY=sk-text
 USE_NATIVE_AXIOS=false
 TIMEOUT=180000
 # PROXY=http://127.0.0.1:7897
-MAX_IMAGES=10 # 最多保存的图片个数，超过就会删除时间最旧的
-# IMAGE_BASE_URL=http://your-domain.com  # 可选：自定义图片访问基础 URL，默认使用 局域网ip或者本地回环
 CREDENTIAL_MAX_USAGE_PER_HOUR=20
 RETRY_STATUS_CODES=429,500
 RETRY_MAX_ATTEMPTS=3
@@ -51,8 +49,6 @@ const config = {
     port: parseInt(process.env.PORT) || 8045,
     host: process.env.HOST || '127.0.0.1'
   },
-  imageBaseUrl: process.env.IMAGE_BASE_URL || null,
-  maxImages: parseInt(process.env.MAX_IMAGES) || 10,
   api: {
     url: process.env.API_URL || 'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:streamGenerateContent?alt=sse',
     modelsUrl: process.env.API_MODELS_URL || 'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels',

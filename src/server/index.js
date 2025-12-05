@@ -280,20 +280,6 @@ const SETTINGS_DEFINITIONS = [
     category: '限额与重试',
     defaultValue: 3,
     valueResolver: () => config.retry.maxAttempts
-  },
-  {
-    key: 'MAX_IMAGES',
-    label: '图片保存上限',
-    category: '限额与重试',
-    defaultValue: 10,
-    valueResolver: () => config.maxImages
-  },
-  {
-    key: 'IMAGE_BASE_URL',
-    label: '图片访问基础 URL',
-    category: '限额与重试',
-    defaultValue: null,
-    valueResolver: () => config.imageBaseUrl
   }
 ];
 
@@ -361,9 +347,6 @@ const endStream = (res, id, created, model, finish_reason, usage = null) => {
 app.use(express.json({ limit: config.security.maxRequestSize }));
 app.use(express.urlencoded({ extended: false }));
 
-// Static images for generated image URLs
-app.use('/images', express.static(path.join(__dirname, '../../public/images')));
-
 // Request body size error handler
 app.use((err, req, res, next) => {
   if (err && err.type === 'entity.too.large') {
@@ -374,9 +357,9 @@ app.use((err, req, res, next) => {
   return next(err);
 });
 
-// Basic request logging (skip images / favicon)
+// Basic request logging (skip favicon)
 app.use((req, res, next) => {
-  if (!req.path.startsWith('/images') && !req.path.startsWith('/favicon.ico')) {
+  if (!req.path.startsWith('/favicon.ico')) {
     const start = Date.now();
     res.on('finish', () => {
       logger.request(req.method, req.path, res.statusCode, Date.now() - start);
@@ -700,26 +683,26 @@ app.post('/admin/logout', (req, res) => {
 
 // Return Google OAuth URL as JSON for front-end
 // 前端现在采用“手动粘贴回调 URL”模式，这里仍然返回带 redirect_uri 的完整授权链接
-  app.get('/auth/oauth/url', requirePanelAuthApi, (req, res) => {
-    const redirectUri = `http://localhost:${config.server.port}/oauth-callback`;
+app.get('/auth/oauth/url', requirePanelAuthApi, (req, res) => {
+  const redirectUri = `http://localhost:${config.server.port}/oauth-callback`;
 
-    const url = buildAuthUrl(redirectUri, OAUTH_STATE);
-    res.json({ url });
-  });
+  const url = buildAuthUrl(redirectUri, OAUTH_STATE);
+  res.json({ url });
+});
 
 // 仅作为提示页面使用：不再在这里直接交换 token
 // 用户在完成授权后，需要复制浏览器地址栏中的完整 URL，回到管理面板粘贴，由新的解析接口处理
 app.get(['/oauth-callback', '/auth/oauth/callback'], (req, res) => {
   return res.send(
     '<!DOCTYPE html>' +
-      '<html lang="zh-CN"><head><meta charset="utf-8" />' +
-      '<title>授权回调 - 请复制地址栏 URL</title>' +
-      '<style>body{font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;background:#f9fafb;margin:0;padding:24px;color:#111827;}h1{font-size:20px;margin:0 0 12px;}p{margin:6px 0;}code{padding:2px 4px;background:#e5e7eb;border-radius:4px;}</style>' +
-      '</head><body>' +
-      '<h1>授权流程已返回回调地址</h1>' +
-      '<p>请复制当前页面浏览器地址栏中的完整 URL，回到 <code>Antigravity</code> 管理面板，在“粘贴回调 URL”输入框中粘贴并提交。</p>' +
-      '<p>提交后，服务端会解析 URL 中的 <code>code</code> 参数并完成账户添加。</p>' +
-      '</body></html>'
+    '<html lang="zh-CN"><head><meta charset="utf-8" />' +
+    '<title>授权回调 - 请复制地址栏 URL</title>' +
+    '<style>body{font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;background:#f9fafb;margin:0;padding:24px;color:#111827;}h1{font-size:20px;margin:0 0 12px;}p{margin:6px 0;}code{padding:2px 4px;background:#e5e7eb;border-radius:4px;}</style>' +
+    '</head><body>' +
+    '<h1>授权流程已返回回调地址</h1>' +
+    '<p>请复制当前页面浏览器地址栏中的完整 URL，回到 <code>Antigravity</code> 管理面板，在“粘贴回调 URL”输入框中粘贴并提交。</p>' +
+    '<p>提交后，服务端会解析 URL 中的 <code>code</code> 参数并完成账户添加。</p>' +
+    '</body></html>'
   );
 });
 

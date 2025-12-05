@@ -1,7 +1,6 @@
 import config from '../config/config.js';
 import tokenManager from '../auth/token_manager.js';
 import { generateRequestId } from './idGenerator.js';
-import os from 'os';
 
 function extractImagesFromContent(content) {
   const result = { text: '', images: [] };
@@ -200,25 +199,7 @@ function generateRequestBody(openaiMessages, modelName, parameters, openaiTools,
     userAgent: "antigravity"
   }
 }
-function getDefaultIp() {
-  const interfaces = os.networkInterfaces();
-  if (interfaces.WLAN) {
-    for (const inter of interfaces.WLAN) {
-      if (inter.family === 'IPv4' && !inter.internal) {
-        return inter.address;
-      }
-    }
-  } else if (interfaces.wlan2) {
-    for (const inter of interfaces.wlan2) {
-      if (inter.family === 'IPv4' && !inter.internal) {
-        return inter.address;
-      }
-    }
-  }
-  return '127.0.0.1';
-}
 export {
   generateRequestId,
-  generateRequestBody,
-  getDefaultIp
+  generateRequestBody
 }
