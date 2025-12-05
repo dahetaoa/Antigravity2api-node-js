@@ -24,6 +24,12 @@ import {
   getUsageCountsWithinWindow,
   getUsageSummary
 } from '../utils/log_store.js';
+import {
+  convertGeminiToAntigravity,
+  extractGeminiResponse,
+  convertToGeminiModelList,
+  transformStreamLine
+} from '../utils/geminiAdapter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -376,20 +382,33 @@ app.get('/', (req, res) => {
   return res.redirect('/admin/login');
 });
 
-// API key check for /v1/*、/gemini/* 以及 /{credential}/v1/* endpoints（API_KEY 在启动时强制要求配置）
+// API key check for /v1/*、/v1beta/*、/gemini/* 以及 /{credential}/v1/* endpoints（API_KEY 在启动时强制要求配置）
 const isProtectedApiPath = pathname => {
   const normalized = pathname || '';
-  return /^\/(?:[\w-]+\/)?v1\//.test(normalized) || normalized.startsWith('/gemini/');
+  return /^\/(?:[\w-]+\/)?v1\//.test(normalized) ||
+    normalized.startsWith('/v1beta/') ||
+    normalized.startsWith('/gemini/');
 };
 
 app.use((req, res, next) => {
   if (isProtectedApiPath(req.path)) {
     const apiKey = config.security?.apiKey;
     if (apiKey) {
+      // 支持两种认证方式：
+      // 1. Authorization header: Bearer sk-xxx 或直接 sk-xxx
+      // 2. Query 参数: ?key=sk-xxx (Gemini API 标准方式)
       const authHeader = req.headers.authorization;
-      const providedKey = authHeader?.startsWith('Bearer ')
-        ? authHeader.slice(7)
-        : authHeader;
+      const queryKey = req.query.key;
+
+      let providedKey = null;
+      if (authHeader) {
+        providedKey = authHeader.startsWith('Bearer ')
+          ? authHeader.slice(7)
+          : authHeader;
+      } else if (queryKey) {
+        providedKey = queryKey;
+      }
+
       if (providedKey !== apiKey) {
         logger.warn(`API Key验证失败: ${req.method} ${req.path}`);
         return res.status(401).json({ error: 'Invalid API Key' });
@@ -1370,6 +1389,236 @@ app.post(/^\/gemini\/v1beta\/models\/([^/]+):generateContent$/, async (req, res)
     const errorStatus = error.statusCode || (res.statusCode >= 400 ? res.statusCode : 500);
     writeLog({ success: false, status: errorStatus, message: error.message });
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== 标准 Gemini API 格式路由 (/v1beta/*) ====================
+
+// 获取模型列表 - 标准 Gemini 格式
+app.get('/v1beta/models', async (req, res) => {
+  try {
+    const token = await tokenManager.getToken();
+    if (!token) {
+      return res.status(503).json({
+        error: {
+          code: 503,
+          message: '没有可用的 token，请先通过 OAuth 面板或 npm run login 获取。',
+          status: 'UNAVAILABLE'
+        }
+      });
+    }
+
+    const internalModels = await getAvailableModels();
+    // 转换为标准 Gemini 格式
+    const geminiModels = convertToGeminiModelList({
+      models: Object.fromEntries(
+        internalModels.data.map(m => [m.id, m])
+      )
+    });
+    res.json(geminiModels);
+  } catch (error) {
+    logger.error('获取模型列表失败:', error.message);
+    res.status(500).json({
+      error: {
+        code: 500,
+        message: error.message,
+        status: 'INTERNAL'
+      }
+    });
+  }
+});
+
+// 非流式内容生成 - 标准 Gemini 格式
+app.post('/v1beta/models/:model\\:generateContent', async (req, res) => {
+  const model = req.params.model;
+  const startedAt = Date.now();
+  const requestSnapshot = createRequestSnapshot(req);
+  let responseBodyForLog = null;
+  let token = null;
+
+  const writeLog = ({ success, status, message }) => {
+    appendLog({
+      timestamp: new Date().toISOString(),
+      model,
+      projectId: token?.projectId || null,
+      success,
+      status,
+      message,
+      durationMs: Date.now() - startedAt,
+      path: req.originalUrl,
+      method: req.method,
+      detail: {
+        request: requestSnapshot,
+        response: {
+          status,
+          headers: res.getHeaders ? res.getHeaders() : undefined,
+          body: responseBodyForLog
+        }
+      }
+    });
+
+    if (logger.detail) {
+      logger.detail({
+        method: req.method,
+        path: req.originalUrl,
+        status,
+        durationMs: Date.now() - startedAt,
+        request: requestSnapshot,
+        response: {
+          status,
+          headers: res.getHeaders ? res.getHeaders() : undefined,
+          body: responseBodyForLog
+        },
+        error: success ? undefined : message
+      });
+    }
+  };
+
+  try {
+    token = await tokenManager.getToken();
+    if (!token) {
+      return res.status(503).json({
+        error: {
+          code: 503,
+          message: '没有可用的 token，请先通过 OAuth 面板或 npm run login 获取。',
+          status: 'UNAVAILABLE'
+        }
+      });
+    }
+
+    // 转换请求格式
+    const antigravityRequest = convertGeminiToAntigravity(model, req.body || {}, token);
+
+    // 调用内部 API
+    const data = await generateGeminiContent(model, req.body || {}, token);
+
+    // 提取标准 Gemini 响应格式
+    const geminiResponse = extractGeminiResponse(data);
+
+    res.json(geminiResponse);
+    responseBodyForLog = geminiResponse;
+
+    writeLog({ success: true, status: res.statusCode || 200 });
+  } catch (error) {
+    logger.error('Gemini 内容生成失败:', error.message);
+    const errorStatus = error.statusCode || (res.statusCode >= 400 ? res.statusCode : 500);
+    writeLog({ success: false, status: errorStatus, message: error.message });
+    res.status(500).json({
+      error: {
+        code: 500,
+        message: error.message,
+        status: 'INTERNAL'
+      }
+    });
+  }
+});
+
+// 流式内容生成 - 标准 Gemini 格式
+app.post('/v1beta/models/:model\\:streamGenerateContent', async (req, res) => {
+  const model = req.params.model;
+  const startedAt = Date.now();
+  const requestSnapshot = createRequestSnapshot(req);
+  const capturedChunks = [];
+  let token = null;
+
+  const writeLog = ({ success, status, message, body }) => {
+    appendLog({
+      timestamp: new Date().toISOString(),
+      model,
+      projectId: token?.projectId || null,
+      success,
+      status,
+      message,
+      durationMs: Date.now() - startedAt,
+      path: req.originalUrl,
+      method: req.method,
+      detail: {
+        request: requestSnapshot,
+        response: {
+          status,
+          headers: res.getHeaders ? res.getHeaders() : undefined,
+          body: body ?? { stream: true, chunks: capturedChunks }
+        }
+      }
+    });
+
+    if (logger.detail) {
+      logger.detail({
+        method: req.method,
+        path: req.originalUrl,
+        status,
+        durationMs: Date.now() - startedAt,
+        request: requestSnapshot,
+        response: {
+          status,
+          headers: res.getHeaders ? res.getHeaders() : undefined,
+          body: body ?? { stream: true, chunks: capturedChunks }
+        },
+        error: success ? undefined : message
+      });
+    }
+  };
+
+  try {
+    token = await tokenManager.getToken();
+    if (!token) {
+      return res.status(503).json({
+        error: {
+          code: 503,
+          message: '没有可用的 token，请先通过 OAuth 面板或 npm run login 获取。',
+          status: 'UNAVAILABLE'
+        }
+      });
+    }
+
+    setStreamHeaders(res);
+
+    // 使用缓冲区处理跨 chunk 的不完整行
+    let buffer = '';
+
+    await streamGeminiContent(model, req.body || {}, token, chunk => {
+      buffer += chunk;
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // 保留最后一行（可能不完整）
+
+      for (const line of lines) {
+        if (line.trim()) {
+          // 转换每一行为标准 Gemini 格式
+          const transformed = transformStreamLine(line);
+          capturedChunks.push(transformed);
+          // SSE 格式要求每个事件以双换行符结尾
+          res.write(transformed + '\n\n');
+        }
+      }
+    });
+
+    // 处理缓冲区中剩余的内容
+    if (buffer.trim()) {
+      const transformed = transformStreamLine(buffer);
+      capturedChunks.push(transformed);
+      // SSE 格式要求每个事件以双换行符结尾
+      res.write(transformed + '\n\n');
+    }
+
+    res.end();
+
+    writeLog({ success: true, status: res.statusCode || 200 });
+  } catch (error) {
+    logger.error('Gemini 流式生成失败:', error.message);
+    const errorStatus = error.statusCode || (res.statusCode >= 400 ? res.statusCode : 500);
+    writeLog({ success: false, status: errorStatus, message: error.message });
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: {
+          code: 500,
+          message: error.message,
+          status: 'INTERNAL'
+        }
+      });
+    } else {
+      res.write(`data: ${JSON.stringify({ error: { code: 500, message: error.message, status: 'INTERNAL' } })}\n\n`);
+      res.end();
+    }
   }
 });
 

@@ -82,6 +82,30 @@ async function withRequesterFallback(fn) {
 function buildGeminiRequest(model, requestBody = {}, token) {
   const { generationConfig, systemInstruction, sessionId, ...rest } = requestBody;
 
+  // 处理 -thinking 后缀：检测并启用思维模式
+  const hasThinkingSuffix = model.endsWith('-thinking');
+  const actualModel = hasThinkingSuffix ? model.slice(0, -9) : model; // 去掉 '-thinking' (9个字符)
+
+  // 判断是否需要启用思维模式
+  const enableThinking = hasThinkingSuffix ||
+    model === 'gemini-2.5-pro' ||
+    model.startsWith('gemini-3-pro-') ||
+    generationConfig?.thinkingConfig?.includeThoughts === true;
+
+  // 合并 generationConfig，确保 thinkingConfig 正确设置
+  const mergedGenerationConfig = {
+    topP: config.defaults.top_p,
+    topK: config.defaults.top_k,
+    temperature: config.defaults.temperature,
+    maxOutputTokens: config.defaults.max_tokens,
+    ...(generationConfig || {}),
+    thinkingConfig: {
+      includeThoughts: enableThinking,
+      thinkingBudget: enableThinking ? (generationConfig?.thinkingConfig?.thinkingBudget || 1024) : 0,
+      ...(generationConfig?.thinkingConfig || {})
+    }
+  };
+
   return {
     project: token.projectId,
     requestId: generateRequestId(),
@@ -91,17 +115,11 @@ function buildGeminiRequest(model, requestBody = {}, token) {
           role: 'user',
           parts: [{ text: config.systemInstruction }]
         },
-      generationConfig: {
-        topP: config.defaults.top_p,
-        topK: config.defaults.top_k,
-        temperature: config.defaults.temperature,
-        maxOutputTokens: config.defaults.max_tokens,
-        ...(generationConfig || {})
-      },
+      generationConfig: mergedGenerationConfig,
       sessionId: sessionId || token.sessionId,
       ...rest
     },
-    model,
+    model: actualModel,
     userAgent: 'antigravity'
   };
 }
