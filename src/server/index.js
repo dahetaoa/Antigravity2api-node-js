@@ -1047,6 +1047,23 @@ const createChatCompletionHandler = (resolveToken, options = {}) => async (req, 
         }
       }
     });
+    // 同时输出到控制台详细日志
+    if (logger.detail) {
+      logger.detail({
+        method: req.method,
+        path: req.originalUrl,
+        status,
+        durationMs: Date.now() - startedAt,
+        request: requestSnapshot,
+        response: {
+          status,
+          headers: res.getHeaders ? res.getHeaders() : undefined,
+          body: responseBodyForLog,
+          modelOutput: responseSummaryForLog
+        },
+        error: success ? undefined : message
+      });
+    }
   };
   try {
     if (!messages) {
@@ -1225,7 +1242,7 @@ app.post(/^\/gemini\/v1beta\/models\/([^/]+):streamGenerateContent$/, async (req
   const capturedChunks = [];
   let token = null;
 
-  const writeLog = ({ success, status, message, body }) =>
+  const writeLog = ({ success, status, message, body }) => {
     appendLog({
       timestamp: new Date().toISOString(),
       model,
@@ -1245,6 +1262,24 @@ app.post(/^\/gemini\/v1beta\/models\/([^/]+):streamGenerateContent$/, async (req
         }
       }
     });
+
+    // 同时输出到控制台详细日志
+    if (logger.detail) {
+      logger.detail({
+        method: req.method,
+        path: req.originalUrl,
+        status,
+        durationMs: Date.now() - startedAt,
+        request: requestSnapshot,
+        response: {
+          status,
+          headers: res.getHeaders ? res.getHeaders() : undefined,
+          body: body ?? { stream: true, chunks: capturedChunks }
+        },
+        error: success ? undefined : message
+      });
+    }
+  };
 
   try {
     token = await tokenManager.getToken();
@@ -1280,7 +1315,7 @@ app.post(/^\/gemini\/v1beta\/models\/([^/]+):generateContent$/, async (req, res)
   let responseBodyForLog = null;
   let token = null;
 
-  const writeLog = ({ success, status, message }) =>
+  const writeLog = ({ success, status, message }) => {
     appendLog({
       timestamp: new Date().toISOString(),
       model,
@@ -1300,6 +1335,24 @@ app.post(/^\/gemini\/v1beta\/models\/([^/]+):generateContent$/, async (req, res)
         }
       }
     });
+
+    // 同时输出到控制台详细日志
+    if (logger.detail) {
+      logger.detail({
+        method: req.method,
+        path: req.originalUrl,
+        status,
+        durationMs: Date.now() - startedAt,
+        request: requestSnapshot,
+        response: {
+          status,
+          headers: res.getHeaders ? res.getHeaders() : undefined,
+          body: responseBodyForLog
+        },
+        error: success ? undefined : message
+      });
+    }
+  };
 
   try {
     token = await tokenManager.getToken();
