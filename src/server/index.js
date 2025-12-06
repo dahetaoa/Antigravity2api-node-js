@@ -388,10 +388,12 @@ app.use((req, res, next) => {
   if (isProtectedApiPath(req.path)) {
     const apiKey = config.security?.apiKey;
     if (apiKey) {
-      // 支持两种认证方式：
+      // 支持三种认证方式：
       // 1. Authorization header: Bearer sk-xxx 或直接 sk-xxx
-      // 2. Query 参数: ?key=sk-xxx (Gemini API 标准方式)
+      // 2. x-goog-api-key header: sk-xxx (Gemini API 标准方式)
+      // 3. Query 参数: ?key=sk-xxx
       const authHeader = req.headers.authorization;
+      const googApiKey = req.headers['x-goog-api-key'];
       const queryKey = req.query.key;
 
       let providedKey = null;
@@ -399,12 +401,24 @@ app.use((req, res, next) => {
         providedKey = authHeader.startsWith('Bearer ')
           ? authHeader.slice(7)
           : authHeader;
+      } else if (googApiKey) {
+        providedKey = googApiKey;
       } else if (queryKey) {
         providedKey = queryKey;
       }
 
       if (providedKey !== apiKey) {
         logger.warn(`API Key验证失败: ${req.method} ${req.path}`);
+        // 输出完整请求信息以便调试
+        if (logger.detail) {
+          logger.detail({
+            method: req.method,
+            path: req.originalUrl,
+            status: 401,
+            request: createRequestSnapshot(req),
+            error: 'Invalid API Key'
+          });
+        }
         return res.status(401).json({ error: 'Invalid API Key' });
       }
     }
@@ -1388,16 +1402,61 @@ app.post(/^\/gemini\/v1beta\/models\/([^/]+):generateContent$/, async (req, res)
 
 // 获取模型列表 - 标准 Gemini 格式
 app.get('/v1beta/models', async (req, res) => {
+  const startedAt = Date.now();
+  const requestSnapshot = createRequestSnapshot(req);
+  let responseBodyForLog = null;
+  let token = null;
+
+  const writeLog = ({ success, status, message }) => {
+    appendLog({
+      timestamp: new Date().toISOString(),
+      model: 'models-list',
+      projectId: token?.projectId || null,
+      success,
+      status,
+      message,
+      durationMs: Date.now() - startedAt,
+      path: req.originalUrl,
+      method: req.method,
+      detail: {
+        request: requestSnapshot,
+        response: {
+          status,
+          headers: res.getHeaders ? res.getHeaders() : undefined,
+          body: responseBodyForLog
+        }
+      }
+    });
+
+    if (logger.detail) {
+      logger.detail({
+        method: req.method,
+        path: req.originalUrl,
+        status,
+        durationMs: Date.now() - startedAt,
+        request: requestSnapshot,
+        response: {
+          status,
+          headers: res.getHeaders ? res.getHeaders() : undefined,
+          body: responseBodyForLog
+        },
+        error: success ? undefined : message
+      });
+    }
+  };
+
   try {
-    const token = await tokenManager.getToken();
+    token = await tokenManager.getToken();
     if (!token) {
-      return res.status(503).json({
+      responseBodyForLog = {
         error: {
           code: 503,
           message: '没有可用的 token，请先通过 OAuth 面板或 npm run login 获取。',
           status: 'UNAVAILABLE'
         }
-      });
+      };
+      writeLog({ success: false, status: 503, message: 'No available token' });
+      return res.status(503).json(responseBodyForLog);
     }
 
     const internalModels = await getAvailableModels();
@@ -1407,16 +1466,22 @@ app.get('/v1beta/models', async (req, res) => {
         internalModels.data.map(m => [m.id, m])
       )
     });
+    responseBodyForLog = geminiModels;
     res.json(geminiModels);
+
+    writeLog({ success: true, status: res.statusCode || 200 });
   } catch (error) {
     logger.error('获取模型列表失败:', error.message);
-    res.status(500).json({
+    const errorStatus = error.statusCode || (res.statusCode >= 400 ? res.statusCode : 500);
+    responseBodyForLog = {
       error: {
         code: 500,
         message: error.message,
         status: 'INTERNAL'
       }
-    });
+    };
+    writeLog({ success: false, status: errorStatus, message: error.message });
+    res.status(500).json(responseBodyForLog);
   }
 });
 
