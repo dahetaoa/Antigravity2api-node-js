@@ -310,17 +310,9 @@ function parseAndEmitStreamChunk(line, state, callback) {
       for (const part of parts) {
         if (part.thought === true) {
           // 思维链内容
-          if (!state.thinkingStarted) {
-            callback({ type: 'thinking', content: '<think>\n' });
-            state.thinkingStarted = true;
-          }
           callback({ type: 'thinking', content: part.text || '' });
         } else if (part.text !== undefined) {
           // 普通文本内容
-          if (state.thinkingStarted) {
-            callback({ type: 'thinking', content: '\n</think>\n' });
-            state.thinkingStarted = false;
-          }
           callback({ type: 'text', content: part.text });
         } else if (part.functionCall) {
           // 工具调用
@@ -331,10 +323,6 @@ function parseAndEmitStreamChunk(line, state, callback) {
 
     // 响应结束时发送工具调用
     if (data.response?.candidates?.[0]?.finishReason && state.toolCalls.length > 0) {
-      if (state.thinkingStarted) {
-        callback({ type: 'thinking', content: '\n</think>\n' });
-        state.thinkingStarted = false;
-      }
       callback({ type: 'tool_calls', tool_calls: state.toolCalls });
       state.toolCalls = [];
     }
@@ -348,7 +336,7 @@ function parseAndEmitStreamChunk(line, state, callback) {
 export async function generateAssistantResponse(requestBody, token, callback) {
 
   const headers = buildHeaders(token);
-  const state = { thinkingStarted: false, toolCalls: [], usage: null };
+  const state = { toolCalls: [], usage: null };
   let buffer = ''; // 缓冲区：处理跨 chunk 的不完整行
 
   const processChunk = (chunk) => {

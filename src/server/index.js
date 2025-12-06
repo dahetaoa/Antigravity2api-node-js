@@ -1138,11 +1138,15 @@ const createChatCompletionHandler = (resolveToken, options = {}) => async (req, 
         let hasToolCall = false;
         const { usage } = await generateAssistantResponse(requestBody, token, data => {
           streamEventsForLog.push(data);
-          const delta =
-            data.type === 'tool_calls'
-              ? { tool_calls: data.tool_calls }
-              : { content: data.content };
-          if (data.type === 'tool_calls') hasToolCall = true;
+          let delta;
+          if (data.type === 'tool_calls') {
+            delta = { tool_calls: data.tool_calls };
+            hasToolCall = true;
+          } else if (data.type === 'thinking') {
+            delta = { reasoning: data.content };
+          } else {
+            delta = { content: data.content };
+          }
           writeStreamData(res, createStreamChunk(id, created, model, delta));
         });
         endStream(res, id, created, model, hasToolCall ? 'tool_calls' : 'stop', usage);
