@@ -1,6 +1,6 @@
 services:
   antigravity-api:
-    image: ghcr.io/zhongruan0522/antigravity2api-node-js:latest
+    image: dahetao/antigravity-api:latest
     container_name: antigravity-api
     restart: unless-stopped
     ports:
