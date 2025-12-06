@@ -28,7 +28,7 @@ API_KEY=sk-text
 USE_NATIVE_AXIOS=false
 TIMEOUT=180000
 # PROXY=http://127.0.0.1:7897
-CREDENTIAL_MAX_USAGE_PER_HOUR=20
+# CREDENTIAL_MAX_USAGE_PER_HOUR 已移除，不再限制调用次数
 RETRY_STATUS_CODES=429,500
 RETRY_MAX_ATTEMPTS=3
 
@@ -66,9 +66,7 @@ const config = {
     maxRequestSize: process.env.MAX_REQUEST_SIZE || '50mb',
     apiKey: process.env.API_KEY || null
   },
-  credentials: {
-    maxUsagePerHour: parseInt(process.env.CREDENTIAL_MAX_USAGE_PER_HOUR, 10) || 20
-  },
+  // credentials 配置已移除，不再限制调用次数
   retry: {
     statusCodes: (process.env.RETRY_STATUS_CODES || '429,500')
       .split(',')

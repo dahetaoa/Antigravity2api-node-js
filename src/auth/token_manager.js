@@ -5,7 +5,6 @@ import axios from 'axios';
 import { log } from '../utils/logger.js';
 import { generateProjectId, generateSessionId } from '../utils/idGenerator.js';
 import config from '../config/config.js';
-import { getUsageCountSince } from '../utils/log_store.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,13 +13,10 @@ const CLIENT_ID = '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleuse
 const CLIENT_SECRET = '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';
 
 class TokenManager {
-  constructor(filePath = path.join(__dirname,'..','..','data' ,'accounts.json')) {
+  constructor(filePath = path.join(__dirname, '..', '..', 'data', 'accounts.json')) {
     this.filePath = filePath;
     this.tokens = [];
     this.currentIndex = 0;
-    this.hourlyLimit = Number.isFinite(Number(config.credentials?.maxUsagePerHour))
-      ? Number(config.credentials.maxUsagePerHour)
-      : 20;
     this.initialize();
   }
 
@@ -36,21 +32,7 @@ class TokenManager {
     }
   }
 
-  isWithinHourlyLimit(token) {
-    if (!this.hourlyLimit || Number.isNaN(this.hourlyLimit)) return true;
 
-    const oneHourAgo = Date.now() - 60 * 60 * 1000;
-    const usage = getUsageCountSince(token.projectId, oneHourAgo);
-
-    if (usage >= this.hourlyLimit) {
-      log.warn(
-        `账号 ${token.projectId || '未知'} 已达到每小时 ${this.hourlyLimit} 次上限，切换下一个账号`
-      );
-      return false;
-    }
-
-    return true;
-  }
 
   moveToNextToken() {
     if (this.tokens.length === 0) {
@@ -68,7 +50,7 @@ class TokenManager {
       const data = fs.readFileSync(this.filePath, 'utf8');
       let tokenArray = JSON.parse(data || '[]');
       let needSave = false;
-      
+
       tokenArray = tokenArray.map(token => {
         if (!token.projectId) {
           token.projectId = generateProjectId();
@@ -76,11 +58,11 @@ class TokenManager {
         }
         return token;
       });
-      
+
       if (needSave) {
         fs.writeFileSync(this.filePath, JSON.stringify(tokenArray, null, 2), 'utf8');
       }
-      
+
       this.tokens = tokenArray.filter(token => token.enable !== false).map(token => ({
         ...token,
         sessionId: generateSessionId()
@@ -149,19 +131,17 @@ class TokenManager {
           allTokens[index] = tokenToSave;
         }
       });
-      
+
       fs.writeFileSync(this.filePath, JSON.stringify(allTokens, null, 2), 'utf8');
     } catch (error) {
       log.error('保存文件失败:', error.message);
     }
   }
 
+  // disableToken 功能已禁用，不再自动禁用任何 key
   disableToken(token) {
-    log.warn(`禁用token ...${token.access_token.slice(-8)}`)
-    token.enable = false;
-    this.saveToFile();
-    this.tokens = this.tokens.filter(t => t.refresh_token !== token.refresh_token);
-    this.currentIndex = this.currentIndex % Math.max(this.tokens.length, 1);
+    log.warn(`跳过禁用 token（已禁用自动禁用功能）...${token.access_token.slice(-8)}`);
+    // 不再执行禁用操作
   }
 
   async getToken() {
@@ -178,23 +158,12 @@ class TokenManager {
           await this.refreshToken(token);
         }
 
-        if (!this.isWithinHourlyLimit(token)) {
-          this.moveToNextToken();
-          attempts += 1;
-          continue;
-        }
-
+        // 已移除每小时调用次数限制，直接返回 token
         return token;
       } catch (error) {
-        if (error.statusCode === 403 || error.statusCode === 400) {
-          const accountNum = this.currentIndex + 1;
-          log.warn(`账号 ${accountNum}: Token 已失效或错误，已自动禁用该账号`);
-          this.disableToken(token);
-          if (this.tokens.length === 0) return null;
-        } else {
-          log.error(`Token ${this.currentIndex + 1} 刷新失败:`, error.message);
-          this.moveToNextToken();
-        }
+        // 不再自动禁用任何 key，只记录错误并切换到下一个
+        log.error(`Token ${this.currentIndex + 1} 刷新失败:`, error.message);
+        this.moveToNextToken();
       }
 
       attempts += 1;
@@ -215,12 +184,7 @@ class TokenManager {
       }
       return token;
     } catch (error) {
-      if (error.statusCode === 403 || error.statusCode === 400) {
-        log.warn(`账号 ${projectId}: Token 已失效或错误，已自动禁用该账号`);
-        this.disableToken(token);
-        return null;
-      }
-
+      // 不再自动禁用任何 key，只记录错误
       log.error(`Token ${projectId} 刷新失败:`, error.message);
       return null;
     }

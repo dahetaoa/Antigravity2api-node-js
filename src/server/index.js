@@ -266,13 +266,7 @@ const SETTINGS_DEFINITIONS = [
     defaultValue: '',
     valueResolver: () => config.systemInstruction
   },
-  {
-    key: 'CREDENTIAL_MAX_USAGE_PER_HOUR',
-    label: '凭证每小时调用上限',
-    category: '限额与重试',
-    defaultValue: 20,
-    valueResolver: () => config.credentials.maxUsagePerHour
-  },
+  // CREDENTIAL_MAX_USAGE_PER_HOUR 已移除，不再限制调用次数
   {
     key: 'RETRY_STATUS_CODES',
     label: '重试状态码',
@@ -990,9 +984,8 @@ app.get('/admin/panel-config', requirePanelAuthApi, (req, res) => {
 
 app.get('/admin/logs/usage', requirePanelAuthApi, (req, res) => {
   const windowMinutes = 60;
-  const limitPerCredential = Number.isFinite(Number(config.credentials.maxUsagePerHour))
-    ? Number(config.credentials.maxUsagePerHour)
-    : null;
+  // 已移除调用次数限制
+  const limitPerCredential = null;
   const usage = getUsageCountsWithinWindow(windowMinutes * 60 * 1000);
 
   res.json({ windowMinutes, limitPerCredential, usage, updatedAt: new Date().toISOString() });
@@ -1218,9 +1211,8 @@ app.get('/v1/models', async (req, res) => {
 });
 
 app.get('/v1/lits', (req, res) => {
-  const limitPerCredential = Number.isFinite(Number(config.credentials?.maxUsagePerHour))
-    ? Number(config.credentials.maxUsagePerHour)
-    : null;
+  // 已移除调用次数限制
+  const limitPerCredential = null;
   const usageMap = new Map(
     getUsageCountsWithinWindow(60 * 60 * 1000).map(item => [item.projectId, item.count])
   );
@@ -1229,7 +1221,7 @@ app.get('/v1/lits', (req, res) => {
     .filter(token => token.enable !== false)
     .map(token => {
       const used = usageMap.get(token.projectId) || 0;
-      const remaining = limitPerCredential === null ? null : Math.max(limitPerCredential - used, 0);
+      const remaining = null; // 无调用限制
       return {
         name: token.projectId,
         used_per_hour: used,

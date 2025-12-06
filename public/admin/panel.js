@@ -34,7 +34,7 @@ const errorFilterCheckbox = document.getElementById('errorFilter');
 const themeToggleBtn = document.getElementById('themeToggleBtn');
 
 const HOUR_WINDOW_MINUTES = 60;
-const HOURLY_LIMIT = 20;
+// HOURLY_LIMIT 已移除，不再限制调用次数
 
 const PAGE_SIZE = 5;
 let accountsData = [];
@@ -262,9 +262,8 @@ function renderAccountsList() {
         <div class="account-item">
           <div class="account-header">
             <div class="account-info">
-              <div class="account-title">${displayName}${
-        acc.projectId ? ` <span class="badge">${acc.projectId}</span>` : ''
-      }</div>
+              <div class="account-title">${displayName}${acc.projectId ? ` <span class="badge">${acc.projectId}</span>` : ''
+        }</div>
               <div class="account-meta">创建时间：${created}</div>
             </div>
             <div class="account-status">
@@ -282,9 +281,8 @@ function renderAccountsList() {
                 <button class="mini-btn" data-action="refresh" data-index="${acc.index}">🔁 刷新</button>
               </div>
               <div class="action-row secondary">
-                <button class="mini-btn" data-action="toggle" data-enable="${acc.enable}" data-index="${acc.index}">${
-        acc.enable ? '⏸️ 停用' : '▶️ 启用'
-      }</button>
+                <button class="mini-btn" data-action="toggle" data-enable="${acc.enable}" data-index="${acc.index}">${acc.enable ? '⏸️ 停用' : '▶️ 启用'
+        }</button>
                 <button class="mini-btn" data-action="reauthorize" data-index="${acc.index}">🔑 重新授权</button>
                 <button class="mini-btn danger" data-action="delete" data-index="${acc.index}">🗑️ 删除</button>
               </div>
@@ -670,7 +668,7 @@ async function loadHourlyUsage() {
       .filter(item => item.hasActivity);
 
     const windowMinutes = data.windowMinutes || HOUR_WINDOW_MINUTES;
-    const limit = data.limitPerCredential || HOURLY_LIMIT;
+    // 已移除调用次数限制，不再显示限额
 
     if (!merged.length) {
       hourlyUsageEl.textContent = '暂无最近 1 小时内的调用记录';
@@ -686,16 +684,12 @@ async function loadHourlyUsage() {
 
     const html = sorted
       .map(item => {
-        const percent = Math.min(100, Math.round(((item.count || 0) / limit) * 100));
         const lastUsedText = item.lastUsedAt ? new Date(item.lastUsedAt).toLocaleString() : '暂无';
         return `
           <div class="log-usage-row">
             <div class="log-usage-header">
               <div class="log-usage-title">${escapeHtml(item.label)}</div>
-              <div class="log-usage-meta">${item.count || 0} / ${limit} 次 · ${windowMinutes} 分钟</div>
-            </div>
-            <div class="progress-bar" aria-label="${escapeHtml(item.label)} 用量">
-              <div class="progress" style="width:${percent}%;"></div>
+              <div class="log-usage-meta">${item.count || 0} 次 · 最近 ${windowMinutes} 分钟（无调用限制）</div>
             </div>
             <div class="log-usage-stats">
               <div class="log-usage-stat">
