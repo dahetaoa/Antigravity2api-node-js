@@ -68,6 +68,46 @@ export function convertGeminiToAntigravity(model, geminiRequest, token) {
 }
 
 /**
+ * 清理单个 part 对象，移除非标准字段
+ * @param {object} part - 原始 part 对象
+ * @returns {object} 清理后的 part 对象
+ */
+function sanitizePart(part) {
+    if (!part || typeof part !== 'object') return part;
+
+    // 复制 part 对象，排除 thoughtSignature 字段
+    const { thoughtSignature, ...cleanPart } = part;
+    return cleanPart;
+}
+
+/**
+ * 清理 candidate 对象，确保 parts 中不包含非标准字段
+ * @param {object} candidate - 原始 candidate 对象
+ * @param {number} index - candidate 索引
+ * @returns {object} 清理后的 candidate 对象
+ */
+function sanitizeCandidate(candidate, index) {
+    if (!candidate || typeof candidate !== 'object') return candidate;
+
+    const result = { ...candidate };
+
+    // 确保 index 字段存在
+    if (result.index === undefined) {
+        result.index = index;
+    }
+
+    // 清理 content.parts
+    if (result.content && Array.isArray(result.content.parts)) {
+        result.content = {
+            ...result.content,
+            parts: result.content.parts.map(sanitizePart)
+        };
+    }
+
+    return result;
+}
+
+/**
  * 从 Antigravity 响应中提取标准 Gemini 响应格式
  * @param {object} antigravityResponse - Antigravity 响应
  * @returns {object} 标准 Gemini API 响应格式
@@ -75,10 +115,21 @@ export function convertGeminiToAntigravity(model, geminiRequest, token) {
 export function extractGeminiResponse(antigravityResponse) {
     // Antigravity 响应格式: { response: { candidates: [...], usageMetadata: {...} } }
     // 标准 Gemini 响应格式: { candidates: [...], usageMetadata: {...} }
+    let response = antigravityResponse;
     if (antigravityResponse && antigravityResponse.response) {
-        return antigravityResponse.response;
+        response = antigravityResponse.response;
     }
-    return antigravityResponse;
+
+    // 如果没有 candidates，直接返回
+    if (!response || !Array.isArray(response.candidates)) {
+        return response;
+    }
+
+    // 清理每个 candidate
+    return {
+        ...response,
+        candidates: response.candidates.map((candidate, idx) => sanitizeCandidate(candidate, idx))
+    };
 }
 
 /**
@@ -117,14 +168,12 @@ export function transformStreamLine(line) {
         // 需要提取 response 部分
         let geminiData = data.response ? data.response : data;
 
-        // 确保 candidates 中包含 index 字段（标准 Gemini 格式要求）
+        // 清理 candidates：确保包含 index 字段，并移除 thoughtSignature 等非标准字段
         if (geminiData.candidates && Array.isArray(geminiData.candidates)) {
-            geminiData.candidates = geminiData.candidates.map((candidate, idx) => {
-                if (candidate.index === undefined) {
-                    return { ...candidate, index: idx };
-                }
-                return candidate;
-            });
+            geminiData = {
+                ...geminiData,
+                candidates: geminiData.candidates.map((candidate, idx) => sanitizeCandidate(candidate, idx))
+            };
         }
 
         return `data: ${JSON.stringify(geminiData)}`;
