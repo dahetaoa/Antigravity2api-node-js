@@ -3,6 +3,7 @@ import tokenManager from '../auth/token_manager.js';
 import config from '../config/config.js';
 import { generateRequestId, generateToolCallId } from '../utils/idGenerator.js';
 import AntigravityRequester from '../AntigravityRequester.js';
+import log from '../utils/logger.js';
 
 // 请求客户端：优先使用 AntigravityRequester，失败则降级到 axios
 let requester = null;
@@ -338,13 +339,25 @@ export async function generateAssistantResponse(requestBody, token, callback) {
   const headers = buildHeaders(token);
   const state = { toolCalls: [], usage: null };
   let buffer = ''; // 缓冲区：处理跨 chunk 的不完整行
+  let streamChunks = []; // 收集流式响应（用于 debug=high 日志）
 
   const processChunk = (chunk) => {
     buffer += chunk;
+    streamChunks.push(chunk); // 收集响应片段
     const lines = buffer.split('\n');
     buffer = lines.pop(); // 保留最后一行（可能不完整）
     lines.forEach(line => parseAndEmitStreamChunk(line, state, callback));
   };
+
+  // 记录后端请求
+  const startTime = Date.now();
+  log.backend({
+    type: 'request',
+    url: config.api.url,
+    method: 'POST',
+    headers,
+    body: requestBody
+  });
 
   try {
     await withRequesterFallback(async currentUseAxios => withRetry(async () => {
@@ -372,7 +385,22 @@ export async function generateAssistantResponse(requestBody, token, callback) {
           .onError(reject);
       });
     }, token));
+
+    // 记录后端响应（成功）
+    log.backend({
+      type: 'response',
+      status: 200,
+      durationMs: Date.now() - startTime,
+      body: streamChunks.join('')
+    });
   } catch (error) {
+    // 记录后端响应（失败）
+    log.backend({
+      type: 'response',
+      status: error?.status || 'Error',
+      durationMs: Date.now() - startTime,
+      body: error?.message || error
+    });
     await handleApiError(error, token);
   }
 
@@ -384,14 +412,25 @@ export async function getAvailableModels() {
   if (!token) throw new Error('没有可用的token，请运行 npm run login 获取token');
 
   const headers = buildHeaders(token);
+  const requestBody = {};
+
+  // 记录后端请求
+  const startTime = Date.now();
+  log.backend({
+    type: 'request',
+    url: config.api.modelsUrl,
+    method: 'POST',
+    headers,
+    body: requestBody
+  });
 
   try {
     const data = await withRequesterFallback(async currentUseAxios => withRetry(async () => {
       if (currentUseAxios) {
-        return (await axios(buildAxiosConfig(config.api.modelsUrl, headers, {}))).data;
+        return (await axios(buildAxiosConfig(config.api.modelsUrl, headers, requestBody))).data;
       }
 
-      const response = await requester.antigravity_fetch(config.api.modelsUrl, buildRequesterConfig(headers, {}));
+      const response = await requester.antigravity_fetch(config.api.modelsUrl, buildRequesterConfig(headers, requestBody));
       const bodyText = await response.text();
       const embeddedError = detectEmbeddedError(bodyText);
 
@@ -407,6 +446,14 @@ export async function getAvailableModels() {
       return JSON.parse(bodyText);
     }, token));
 
+    // 记录后端响应（成功）
+    log.backend({
+      type: 'response',
+      status: 200,
+      durationMs: Date.now() - startTime,
+      body: data
+    });
+
     return {
       object: 'list',
       data: Object.keys(data.models).map(id => ({
@@ -417,6 +464,13 @@ export async function getAvailableModels() {
       }))
     };
   } catch (error) {
+    // 记录后端响应（失败）
+    log.backend({
+      type: 'response',
+      status: error?.status || 'Error',
+      durationMs: Date.now() - startTime,
+      body: error?.message || error
+    });
     await handleApiError(error, token);
   }
 }
@@ -425,6 +479,16 @@ export async function generateAssistantResponseNoStream(requestBody, token) {
 
   const headers = buildHeaders(token);
   let data;
+
+  // 记录后端请求
+  const startTime = Date.now();
+  log.backend({
+    type: 'request',
+    url: config.api.noStreamUrl,
+    method: 'POST',
+    headers,
+    body: requestBody
+  });
 
   try {
     data = await withRequesterFallback(async currentUseAxios => withRetry(async () => {
@@ -447,7 +511,22 @@ export async function generateAssistantResponseNoStream(requestBody, token) {
 
       return JSON.parse(bodyText);
     }, token));
+
+    // 记录后端响应（成功）
+    log.backend({
+      type: 'response',
+      status: 200,
+      durationMs: Date.now() - startTime,
+      body: data
+    });
   } catch (error) {
+    // 记录后端响应（失败）
+    log.backend({
+      type: 'response',
+      status: error?.status || 'Error',
+      durationMs: Date.now() - startTime,
+      body: error?.message || error
+    });
     await handleApiError(error, token);
   }
 
@@ -495,6 +574,17 @@ export function closeRequester() {
 export async function streamGeminiContent(model, requestBody, token, onChunk) {
   const headers = buildHeaders(token);
   const payload = buildGeminiRequest(model, requestBody, token);
+  let streamChunks = []; // 收集流式响应（用于 debug=high 日志）
+
+  // 记录后端请求
+  const startTime = Date.now();
+  log.backend({
+    type: 'request',
+    url: config.api.url,
+    method: 'POST',
+    headers,
+    body: payload
+  });
 
   try {
     await withRequesterFallback(async currentUseAxios => withRetry(async () => {
@@ -502,7 +592,11 @@ export async function streamGeminiContent(model, requestBody, token, onChunk) {
         const axiosConfig = { ...buildAxiosConfig(config.api.url, headers, payload), responseType: 'stream' };
         const response = await axios(axiosConfig);
 
-        response.data.on('data', chunk => onChunk(chunk.toString()));
+        response.data.on('data', chunk => {
+          const chunkStr = chunk.toString();
+          streamChunks.push(chunkStr);
+          onChunk(chunkStr);
+        });
         await new Promise((resolve, reject) => {
           response.data.on('end', resolve);
           response.data.on('error', reject);
@@ -522,12 +616,34 @@ export async function streamGeminiContent(model, requestBody, token, onChunk) {
           .onStart(({ status }) => {
             statusCode = status;
           })
-          .onData(chunk => (statusCode !== 200 ? (errorBody += chunk) : onChunk(chunk)))
+          .onData(chunk => {
+            if (statusCode !== 200) {
+              errorBody += chunk;
+            } else {
+              streamChunks.push(chunk);
+              onChunk(chunk);
+            }
+          })
           .onEnd(() => (statusCode !== 200 ? reject({ status: statusCode, message: errorBody }) : resolve()))
           .onError(reject);
       });
     }, token));
+
+    // 记录后端响应（成功）
+    log.backend({
+      type: 'response',
+      status: 200,
+      durationMs: Date.now() - startTime,
+      body: streamChunks.join('')
+    });
   } catch (error) {
+    // 记录后端响应（失败）
+    log.backend({
+      type: 'response',
+      status: error?.status || 'Error',
+      durationMs: Date.now() - startTime,
+      body: error?.message || error
+    });
     await handleApiError(error, token);
   }
 }
@@ -536,8 +652,18 @@ export async function generateGeminiContent(model, requestBody, token) {
   const headers = buildHeaders(token);
   const payload = buildGeminiRequest(model, requestBody, token);
 
+  // 记录后端请求
+  const startTime = Date.now();
+  log.backend({
+    type: 'request',
+    url: config.api.noStreamUrl,
+    method: 'POST',
+    headers,
+    body: payload
+  });
+
   try {
-    return await withRequesterFallback(async currentUseAxios => withRetry(async () => {
+    const data = await withRequesterFallback(async currentUseAxios => withRetry(async () => {
       if (currentUseAxios) {
         return (await axios(buildAxiosConfig(config.api.noStreamUrl, headers, payload))).data;
       }
@@ -559,7 +685,24 @@ export async function generateGeminiContent(model, requestBody, token) {
       }
       return JSON.parse(bodyText);
     }, token));
+
+    // 记录后端响应（成功）
+    log.backend({
+      type: 'response',
+      status: 200,
+      durationMs: Date.now() - startTime,
+      body: data
+    });
+
+    return data;
   } catch (error) {
+    // 记录后端响应（失败）
+    log.backend({
+      type: 'response',
+      status: error?.status || 'Error',
+      durationMs: Date.now() - startTime,
+      body: error?.message || error
+    });
     await handleApiError(error, token);
   }
 }

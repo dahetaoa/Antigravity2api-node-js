@@ -9,6 +9,7 @@ services:
       - PANEL_USER=admin
       - PANEL_PASSWORD=password
       - API_KEY=sk-123456
+      # - DEBUG=low # options: low, high
     volumes:
       - ./data:/app/data
     healthcheck:

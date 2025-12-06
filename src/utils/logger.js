@@ -18,15 +18,44 @@ function logRequest(method, path, status, duration) {
   console.log(`${colors.cyan}[${method}]${colors.reset} - ${path} ${statusColor}${status}${colors.reset} ${colors.gray}${duration}ms${colors.reset}`);
 }
 
-export const log = {
-  info: (...args) => logMessage('info', ...args),
-  warn: (...args) => logMessage('warn', ...args),
-  error: (...args) => logMessage('error', ...args),
-  request: logRequest,
-  detail: logDetail
+const DebugLevel = {
+  OFF: 0,
+  LOW: 1,
+  HIGH: 2
 };
 
+function getDebugLevel() {
+  // 1. 优先检查命令行参数
+  const args = process.argv.slice(2);
+  const debugIndex = args.indexOf('-debug');
+
+  if (debugIndex !== -1) {
+    const nextArg = args[debugIndex + 1];
+    if (nextArg === 'high') {
+      return DebugLevel.HIGH;
+    }
+    return DebugLevel.LOW;
+  }
+
+  // 2. 检查环境变量
+  const envDebug = process.env.DEBUG ? String(process.env.DEBUG).toLowerCase() : '';
+  if (envDebug === 'high') {
+    return DebugLevel.HIGH;
+  }
+  if (['low', 'true', '1', 'on'].includes(envDebug)) {
+    return DebugLevel.LOW;
+  }
+
+  return DebugLevel.OFF;
+}
+
+const currentDebugLevel = getDebugLevel();
+
 function logDetail(data) {
+  if (currentDebugLevel < DebugLevel.LOW) {
+    return;
+  }
+
   const { method, path, status, durationMs, request, response, error } = data;
   const statusColor = status >= 500 ? colors.red : status >= 400 ? colors.yellow : colors.green;
 
@@ -42,9 +71,7 @@ function logDetail(data) {
     console.log(JSON.stringify(request.headers || {}, null, 2));
     if (request.body) {
       console.log(`${colors.cyan}Request Body:${colors.reset}`);
-      // 截断太长的 body
-      const bodyStr = JSON.stringify(request.body, null, 2);
-      console.log(bodyStr.length > 2000 ? bodyStr.substring(0, 2000) + '... (truncated)' : bodyStr);
+      console.log(JSON.stringify(request.body, null, 2));
     }
   }
 
@@ -56,11 +83,70 @@ function logDetail(data) {
     if (response.body || response.modelOutput) {
       console.log(`${colors.green}Response Output:${colors.reset}`);
       const out = response.modelOutput || response.body;
-      const outStr = JSON.stringify(out, null, 2);
-      console.log(outStr.length > 2000 ? outStr.substring(0, 2000) + '... (truncated)' : outStr);
+      console.log(JSON.stringify(out, null, 2));
     }
   }
   console.log('----------------------------------------------------');
 }
+
+/**
+ * 记录后端 API 的请求和响应（仅 debug=high 时生效）
+ * @param {Object} data - 日志数据
+ * @param {string} data.type - 'request' 或 'response'
+ * @param {string} data.url - 请求 URL
+ * @param {string} data.method - HTTP 方法
+ * @param {Object} data.headers - 请求/响应头
+ * @param {any} data.body - 请求/响应体
+ * @param {number} data.status - 响应状态码（仅 response）
+ * @param {number} data.durationMs - 请求耗时（仅 response）
+ */
+function logBackend(data) {
+  if (currentDebugLevel < DebugLevel.HIGH) {
+    return;
+  }
+
+  const { type, url, method, headers, body, status, durationMs } = data;
+
+  console.log('==================== BACKEND ====================');
+
+  if (type === 'request') {
+    console.log(`${colors.yellow}[Backend Request]${colors.reset} ${colors.cyan}${method}${colors.reset} ${url}`);
+    if (headers) {
+      console.log(`${colors.yellow}Headers:${colors.reset}`);
+      // 隐藏敏感的 Authorization 头
+      const safeHeaders = { ...headers };
+      if (safeHeaders.Authorization) {
+        safeHeaders.Authorization = safeHeaders.Authorization.substring(0, 20) + '...[HIDDEN]';
+      }
+      console.log(JSON.stringify(safeHeaders, null, 2));
+    }
+    if (body) {
+      console.log(`${colors.yellow}Body:${colors.reset}`);
+      const bodyStr = typeof body === 'string' ? body : JSON.stringify(body, null, 2);
+      console.log(bodyStr);
+    }
+  } else if (type === 'response') {
+    const statusColor = status >= 500 ? colors.red : status >= 400 ? colors.yellow : colors.green;
+    console.log(`${colors.green}[Backend Response]${colors.reset} ${statusColor}${status}${colors.reset} ${colors.gray}${durationMs}ms${colors.reset}`);
+    if (body) {
+      console.log(`${colors.green}Body:${colors.reset}`);
+      const bodyStr = typeof body === 'string' ? body : JSON.stringify(body, null, 2);
+      console.log(bodyStr);
+    }
+  }
+
+  console.log('==================================================');
+}
+
+export const log = {
+  info: (...args) => logMessage('info', ...args),
+  warn: (...args) => logMessage('warn', ...args),
+  error: (...args) => logMessage('error', ...args),
+  request: logRequest,
+  detail: logDetail,
+  backend: logBackend,
+  level: currentDebugLevel,
+  DebugLevel
+};
 
 export default log;

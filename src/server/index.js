@@ -1219,11 +1219,58 @@ const createChatCompletionHandler = (resolveToken, options = {}) => async (req, 
 };
 
 app.get('/v1/models', async (req, res) => {
+  const startedAt = Date.now();
+  const requestSnapshot = createRequestSnapshot(req);
+  let responseBodyForLog = null;
+
+  const writeLog = ({ success, status, message }) => {
+    appendLog({
+      timestamp: new Date().toISOString(),
+      model: 'models-list',
+      projectId: null,
+      success,
+      status,
+      message,
+      durationMs: Date.now() - startedAt,
+      path: req.originalUrl,
+      method: req.method,
+      detail: {
+        request: requestSnapshot,
+        response: {
+          status,
+          headers: res.getHeaders ? res.getHeaders() : undefined,
+          body: responseBodyForLog
+        }
+      }
+    });
+
+    if (logger.detail) {
+      logger.detail({
+        method: req.method,
+        path: req.originalUrl,
+        status,
+        durationMs: Date.now() - startedAt,
+        request: requestSnapshot,
+        response: {
+          status,
+          headers: res.getHeaders ? res.getHeaders() : undefined,
+          body: responseBodyForLog
+        },
+        error: success ? undefined : message
+      });
+    }
+  };
+
   try {
     const models = await getAvailableModels();
+    responseBodyForLog = models;
     res.json(models);
+    writeLog({ success: true, status: res.statusCode || 200 });
   } catch (error) {
     logger.error('获取模型列表失败:', error.message);
+    const errorStatus = error.statusCode || (res.statusCode >= 400 ? res.statusCode : 500);
+    responseBodyForLog = { error: error.message };
+    writeLog({ success: false, status: errorStatus, message: error.message });
     res.status(500).json({ error: error.message });
   }
 });
