@@ -1,5 +1,7 @@
 import dotenv from 'dotenv';
 import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import log from '../utils/logger.js';
 
 const envPath = '.env';
@@ -80,6 +82,193 @@ const config = {
   systemInstruction: process.env.SYSTEM_INSTRUCTION || ''
 };
 
+// ===== API 端点预设和动态切换 =====
+
+const API_ENDPOINTS = {
+  daily: {
+    key: 'daily',
+    label: 'Daily (Sandbox)',
+    host: 'daily-cloudcode-pa.sandbox.googleapis.com'
+  },
+  autopush: {
+    key: 'autopush',
+    label: 'Autopush (Sandbox)',
+    host: 'autopush-cloudcode-pa.sandbox.googleapis.com'
+  },
+  production: {
+    key: 'production',
+    label: 'Production',
+    host: 'cloudcode-pa.googleapis.com'
+  }
+};
+
+// 轮询模式配置
+const ROUND_ROBIN_ENDPOINTS = ['daily', 'production']; // 轮询使用的端点
+let roundRobinIndex = 0; // 当前轮询索引
+
+// 设置文件路径
+const SETTINGS_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'data', 'settings.json');
+
+// 从设置文件加载配置
+function loadSettingsFromFile() {
+  try {
+    if (fs.existsSync(SETTINGS_FILE)) {
+      return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'));
+    }
+  } catch (e) {
+    log.warn(`读取设置文件失败: ${e.message}`);
+  }
+  return {};
+}
+
+// 保存配置到设置文件
+function saveSettingsToFile(updates) {
+  try {
+    const dir = path.dirname(SETTINGS_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    let settings = loadSettingsFromFile();
+    settings = { ...settings, ...updates, updatedAt: new Date().toISOString() };
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8');
+    return true;
+  } catch (e) {
+    log.error(`保存设置文件失败: ${e.message}`);
+    return false;
+  }
+}
+
+// 当前配置状态
+const settings = loadSettingsFromFile();
+let currentEndpointKey = settings.currentEndpoint && API_ENDPOINTS[settings.currentEndpoint]
+  ? settings.currentEndpoint
+  : 'daily';
+let endpointMode = settings.endpointMode || 'fixed'; // 'fixed' | 'round-robin'
+
+// 根据端点 key 构建 URL 配置
+function buildUrlsFromEndpoint(endpointKey) {
+  const endpoint = API_ENDPOINTS[endpointKey];
+  if (!endpoint) return null;
+
+  return {
+    url: `https://${endpoint.host}/v1internal:streamGenerateContent?alt=sse`,
+    modelsUrl: `https://${endpoint.host}/v1internal:fetchAvailableModels`,
+    noStreamUrl: `https://${endpoint.host}/v1internal:generateContent`,
+    host: endpoint.host
+  };
+}
+
+// 应用端点到 config 对象
+function applyEndpointToConfig(endpointKey) {
+  const urls = buildUrlsFromEndpoint(endpointKey);
+  if (urls) {
+    config.api.url = urls.url;
+    config.api.modelsUrl = urls.modelsUrl;
+    config.api.noStreamUrl = urls.noStreamUrl;
+    config.api.host = urls.host;
+    return true;
+  }
+  return false;
+}
+
+// 初始化时应用端点
+applyEndpointToConfig(currentEndpointKey);
+
+// ===== 导出函数 =====
+
+export function getAvailableEndpoints() {
+  return Object.values(API_ENDPOINTS);
+}
+
+export function getCurrentEndpoint() {
+  return {
+    key: currentEndpointKey,
+    ...API_ENDPOINTS[currentEndpointKey]
+  };
+}
+
+export function getEndpointMode() {
+  return endpointMode;
+}
+
+export function setEndpoint(endpointKey) {
+  if (!API_ENDPOINTS[endpointKey]) {
+    return { success: false, error: `未知的端点: ${endpointKey}` };
+  }
+
+  if (applyEndpointToConfig(endpointKey)) {
+    currentEndpointKey = endpointKey;
+    saveSettingsToFile({ currentEndpoint: endpointKey });
+    log.info(`✓ API 端点已切换为: ${API_ENDPOINTS[endpointKey].label} (${API_ENDPOINTS[endpointKey].host})`);
+    return { success: true, current: getCurrentEndpoint() };
+  }
+
+  return { success: false, error: '切换端点失败' };
+}
+
+export function setEndpointMode(mode) {
+  if (mode !== 'fixed' && mode !== 'round-robin') {
+    return { success: false, error: `未知的模式: ${mode}` };
+  }
+
+  endpointMode = mode;
+  saveSettingsToFile({ endpointMode: mode });
+
+  if (mode === 'round-robin') {
+    log.info(`✓ 端点模式已切换为: 自动轮询 (${ROUND_ROBIN_ENDPOINTS.join(' ↔ ')})`);
+  } else {
+    log.info(`✓ 端点模式已切换为: 固定端点 (${API_ENDPOINTS[currentEndpointKey].label})`);
+  }
+
+  return { success: true, mode: endpointMode };
+}
+
+/**
+ * 获取当前请求应使用的端点配置
+ * - fixed 模式：返回当前固定端点
+ * - round-robin 模式：轮询返回 daily/production
+ */
+export function getActiveEndpointConfig() {
+  let activeKey;
+
+  if (endpointMode === 'round-robin') {
+    activeKey = ROUND_ROBIN_ENDPOINTS[roundRobinIndex];
+    roundRobinIndex = (roundRobinIndex + 1) % ROUND_ROBIN_ENDPOINTS.length;
+  } else {
+    activeKey = currentEndpointKey;
+  }
+
+  const endpoint = API_ENDPOINTS[activeKey];
+  const urls = buildUrlsFromEndpoint(activeKey);
+
+  return {
+    key: activeKey,
+    label: endpoint.label,
+    host: endpoint.host,
+    ...urls
+  };
+}
+
+/**
+ * 获取端点状态摘要（用于API响应）
+ */
+export function getEndpointStatus() {
+  return {
+    mode: endpointMode,
+    currentEndpoint: getCurrentEndpoint(),
+    roundRobinEndpoints: ROUND_ROBIN_ENDPOINTS.map(k => ({
+      key: k,
+      label: API_ENDPOINTS[k].label,
+      host: API_ENDPOINTS[k].host
+    }))
+  };
+}
+
 log.info('✓ 配置加载成功');
+log.info(`✓ 端点模式: ${endpointMode === 'round-robin' ? '自动轮询' : '固定端点'}`);
+log.info(`✓ 当前端点: ${API_ENDPOINTS[currentEndpointKey].label}`);
 
 export default config;
+
+

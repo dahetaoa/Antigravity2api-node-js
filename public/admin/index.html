@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="utf-8" />
   <title>Antigravity OAuth 管理</title>
@@ -7,11 +8,12 @@
     try {
       const saved = localStorage.getItem('ag-panel-theme');
       if (saved) document.documentElement.setAttribute('data-theme', saved);
-    } catch (e) {}
+    } catch (e) { }
   </script>
   <link rel="stylesheet" href="/admin/panel.css" />
   <script src="/admin/theme.js"></script>
 </head>
+
 <body>
   <div class="container">
     <header class="header">
@@ -46,12 +48,7 @@
       </div>
       <div class="card-body">
         <p>授权完成后，请复制回调页面地址栏中的完整 URL，粘贴到输入框并提交以完成添加或重新授权。</p>
-        <input
-          id="callbackUrlInput"
-          type="text"
-          placeholder="将回调后浏览器真实的完整 URL 粘贴到这里"
-          class="input"
-        />
+        <input id="callbackUrlInput" type="text" placeholder="将回调后浏览器真实的完整 URL 粘贴到这里" class="input" />
         <div class="inline-row">
           <button id="submitCallbackBtn" class="refresh-btn">提交回调 URL 并交换凭证</button>
           <span id="status" class="badge" style="display:none;"></span>
@@ -70,12 +67,8 @@
       </div>
       <div class="card-body">
         <p>将包含 <code>[[accounts]]</code> 的 TOML 内容粘贴到下方，必要时勾选覆盖现有凭证。</p>
-        <textarea
-          id="tomlInput"
-          class="textarea"
-          rows="8"
-          placeholder="[[accounts]]\naccess_token = \"...\"\nrefresh_token = \"...\"\ncreated_at = \"2025-11-26 08:46:35\"\n..."
-        ></textarea>
+        <textarea id="tomlInput" class="textarea" rows="8" placeholder="[[accounts]]\naccess_token = \"
+          ...\"\nrefresh_token=\"...\"\ncreated_at=\"2025-11-26 08:46:35\"\n..."></textarea>
         <label class="checkbox-row">
           <input type="checkbox" id="replaceExisting" />
           <span>覆盖已存在的账号（勾选后将只保留本次导入的账号）</span>
@@ -191,6 +184,28 @@
       <div class="status-row">
         <span id="settingsStatus" class="badge" style="display:none;"></span>
       </div>
+      <div class="endpoint-selector">
+        <div class="endpoint-selector-header">
+          <div class="eyebrow">运行时切换</div>
+          <h3>API 端点</h3>
+          <p>选择固定端点或启用自动轮询在 Daily 和 Production 间负载均衡。</p>
+        </div>
+        <div class="endpoint-mode-row">
+          <label class="checkbox-row">
+            <input type="checkbox" id="roundRobinToggle" />
+            <span>启用自动轮询（Daily ↔ Production 1:1 负载均衡）</span>
+          </label>
+        </div>
+        <div class="endpoint-selector-body" id="endpointSelectorBody">
+          <select id="endpointSelect" class="input select">
+            <option value="">加载中...</option>
+          </select>
+          <button id="switchEndpointBtn" class="refresh-btn">🔄 切换端点</button>
+        </div>
+        <div class="status-row">
+          <span id="endpointStatus" class="badge" style="display:none;"></span>
+        </div>
+      </div>
       <div id="settingsGrid" class="settings-grid">加载中...</div>
     </section>
 
@@ -213,4 +228,5 @@
 
   <script src="/admin/panel.js"></script>
 </body>
+
 </html>

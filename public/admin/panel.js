@@ -75,7 +75,7 @@ function activateTab(target) {
 }
 
 async function fetchJson(url, options = {}) {
-  const res = await fetch(url, { credentials: 'same-origin', ...options });
+  const res = await fetch(url, { ...options, credentials: 'same-origin' });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.error) {
     throw new Error(data.error || `HTTP ${res.status}`);
@@ -926,6 +926,7 @@ if (settingsRefreshBtn) {
       settingsRefreshBtn.disabled = true;
       settingsRefreshBtn.textContent = '刷新中...';
       await loadSettings();
+      await loadEndpoints();
     } finally {
       settingsRefreshBtn.textContent = '🔄 刷新配置';
       settingsRefreshBtn.disabled = false;
@@ -933,7 +934,136 @@ if (settingsRefreshBtn) {
   });
 }
 
+// ===== API 端点管理 =====
+
+const endpointSelect = document.getElementById('endpointSelect');
+const switchEndpointBtn = document.getElementById('switchEndpointBtn');
+const endpointStatusEl = document.getElementById('endpointStatus');
+const roundRobinToggle = document.getElementById('roundRobinToggle');
+const endpointSelectorBody = document.getElementById('endpointSelectorBody');
+
+let currentEndpointKey = null;
+let currentEndpointMode = 'fixed';
+
+function updateEndpointUI() {
+  const isRoundRobin = currentEndpointMode === 'round-robin';
+
+  if (roundRobinToggle) {
+    roundRobinToggle.checked = isRoundRobin;
+  }
+
+  if (endpointSelectorBody) {
+    endpointSelectorBody.style.opacity = isRoundRobin ? '0.5' : '1';
+    endpointSelectorBody.style.pointerEvents = isRoundRobin ? 'none' : 'auto';
+  }
+
+  if (isRoundRobin) {
+    setStatus('自动轮询模式: Daily ↔ Production', 'info', endpointStatusEl);
+  }
+}
+
+async function loadEndpoints() {
+  if (!endpointSelect) return;
+
+  try {
+    const data = await fetchJson('/admin/endpoints');
+    const endpoints = data.endpoints || [];
+    const current = data.current;
+
+    currentEndpointKey = current?.key || null;
+    currentEndpointMode = data.mode || 'fixed';
+
+    endpointSelect.innerHTML = endpoints
+      .map(ep => `<option value="${ep.key}" ${ep.key === current?.key ? 'selected' : ''}>${escapeHtml(ep.label)} (${escapeHtml(ep.host)})</option>`)
+      .join('');
+
+    updateEndpointUI();
+
+    if (currentEndpointMode !== 'round-robin') {
+      setStatus(`当前端点: ${current?.label || '未知'}`, 'success', endpointStatusEl);
+    }
+  } catch (e) {
+    endpointSelect.innerHTML = '<option value="">加载失败</option>';
+    setStatus('加载端点失败: ' + e.message, 'error', endpointStatusEl);
+  }
+}
+
+async function switchEndpoint() {
+  if (!endpointSelect || !switchEndpointBtn) return;
+
+  const selectedKey = endpointSelect.value;
+  if (!selectedKey) {
+    setStatus('请选择一个端点', 'error', endpointStatusEl);
+    return;
+  }
+
+  if (selectedKey === currentEndpointKey) {
+    setStatus('当前已是该端点，无需切换', 'info', endpointStatusEl);
+    return;
+  }
+
+  try {
+    switchEndpointBtn.disabled = true;
+    switchEndpointBtn.textContent = '切换中...';
+    setStatus('正在切换端点...', 'info', endpointStatusEl);
+
+    const result = await fetchJson('/admin/endpoints', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint: selectedKey })
+    });
+
+    currentEndpointKey = result.current?.key || selectedKey;
+    setStatus(`✓ ${result.message || '切换成功'}`, 'success', endpointStatusEl);
+
+    // 刷新设置显示以反映新端点
+    await loadSettings();
+  } catch (e) {
+    setStatus('切换失败: ' + e.message, 'error', endpointStatusEl);
+  } finally {
+    switchEndpointBtn.textContent = '🔄 切换端点';
+    switchEndpointBtn.disabled = false;
+  }
+}
+
+async function toggleEndpointMode() {
+  if (!roundRobinToggle) return;
+
+  const newMode = roundRobinToggle.checked ? 'round-robin' : 'fixed';
+
+  try {
+    setStatus('正在切换模式...', 'info', endpointStatusEl);
+
+    const result = await fetchJson('/admin/endpoints/mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: newMode })
+    });
+
+    currentEndpointMode = result.mode || newMode;
+    updateEndpointUI();
+    setStatus(`✓ ${result.message || '模式切换成功'}`, 'success', endpointStatusEl);
+
+    await loadSettings();
+  } catch (e) {
+    // 恢复checkbox状态
+    roundRobinToggle.checked = currentEndpointMode === 'round-robin';
+    setStatus('模式切换失败: ' + e.message, 'error', endpointStatusEl);
+  }
+}
+
+if (switchEndpointBtn) {
+  switchEndpointBtn.addEventListener('click', switchEndpoint);
+}
+
+if (roundRobinToggle) {
+  roundRobinToggle.addEventListener('change', toggleEndpointMode);
+}
+
 refreshAccounts();
 loadLogs();
 loadHourlyUsage();
 loadSettings();
+loadEndpoints();
+
+

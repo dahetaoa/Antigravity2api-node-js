@@ -1,6 +1,6 @@
 import axios from 'axios';
 import tokenManager from '../auth/token_manager.js';
-import config from '../config/config.js';
+import config, { getActiveEndpointConfig } from '../config/config.js';
 import { generateRequestId, generateToolCallId } from '../utils/idGenerator.js';
 import AntigravityRequester from '../AntigravityRequester.js';
 import log from '../utils/logger.js';
@@ -23,9 +23,10 @@ if (config.useNativeAxios === true) {
 
 // ==================== 辅助函数 ====================
 
-function buildHeaders(token) {
+function buildHeaders(token, endpointConfig = null) {
+  const host = endpointConfig?.host || config.api.host;
   return {
-    'Host': config.api.host,
+    'Host': host,
     'User-Agent': config.api.userAgent,
     'Authorization': `Bearer ${token.access_token}`,
     'Content-Type': 'application/json',
@@ -336,7 +337,9 @@ function parseAndEmitStreamChunk(line, state, callback) {
 
 export async function generateAssistantResponse(requestBody, token, callback) {
 
-  const headers = buildHeaders(token);
+  // 获取当前请求应使用的端点配置（支持轮询）
+  const endpointConfig = getActiveEndpointConfig();
+  const headers = buildHeaders(token, endpointConfig);
   const state = { toolCalls: [], usage: null };
   let buffer = ''; // 缓冲区：处理跨 chunk 的不完整行
   let streamChunks = []; // 收集流式响应（用于 debug=high 日志）
@@ -353,7 +356,7 @@ export async function generateAssistantResponse(requestBody, token, callback) {
   const startTime = Date.now();
   log.backend({
     type: 'request',
-    url: config.api.url,
+    url: endpointConfig.url,
     method: 'POST',
     headers,
     body: requestBody
@@ -362,7 +365,7 @@ export async function generateAssistantResponse(requestBody, token, callback) {
   try {
     await withRequesterFallback(async currentUseAxios => withRetry(async () => {
       if (currentUseAxios) {
-        const axiosConfig = { ...buildAxiosConfig(config.api.url, headers, requestBody), responseType: 'stream' };
+        const axiosConfig = { ...buildAxiosConfig(endpointConfig.url, headers, requestBody), responseType: 'stream' };
         const response = await axios(axiosConfig);
 
         response.data.on('data', chunk => processChunk(chunk.toString()));
@@ -373,7 +376,7 @@ export async function generateAssistantResponse(requestBody, token, callback) {
         return;
       }
 
-      const streamResponse = requester.antigravity_fetchStream(config.api.url, buildRequesterConfig(headers, requestBody));
+      const streamResponse = requester.antigravity_fetchStream(endpointConfig.url, buildRequesterConfig(headers, requestBody));
       let errorBody = '';
       let statusCode = null;
 
@@ -477,14 +480,16 @@ export async function getAvailableModels() {
 
 export async function generateAssistantResponseNoStream(requestBody, token) {
 
-  const headers = buildHeaders(token);
+  // 获取当前请求应使用的端点配置（支持轮询）
+  const endpointConfig = getActiveEndpointConfig();
+  const headers = buildHeaders(token, endpointConfig);
   let data;
 
   // 记录后端请求
   const startTime = Date.now();
   log.backend({
     type: 'request',
-    url: config.api.noStreamUrl,
+    url: endpointConfig.noStreamUrl,
     method: 'POST',
     headers,
     body: requestBody
@@ -493,10 +498,10 @@ export async function generateAssistantResponseNoStream(requestBody, token) {
   try {
     data = await withRequesterFallback(async currentUseAxios => withRetry(async () => {
       if (currentUseAxios) {
-        return (await axios(buildAxiosConfig(config.api.noStreamUrl, headers, requestBody))).data;
+        return (await axios(buildAxiosConfig(endpointConfig.noStreamUrl, headers, requestBody))).data;
       }
 
-      const response = await requester.antigravity_fetch(config.api.noStreamUrl, buildRequesterConfig(headers, requestBody));
+      const response = await requester.antigravity_fetch(endpointConfig.noStreamUrl, buildRequesterConfig(headers, requestBody));
       const bodyText = await response.text();
       const embeddedError = detectEmbeddedError(bodyText);
 
@@ -572,7 +577,9 @@ export function closeRequester() {
 }
 
 export async function streamGeminiContent(model, requestBody, token, onChunk) {
-  const headers = buildHeaders(token);
+  // 获取当前请求应使用的端点配置（支持轮询）
+  const endpointConfig = getActiveEndpointConfig();
+  const headers = buildHeaders(token, endpointConfig);
   const payload = buildGeminiRequest(model, requestBody, token);
   let streamChunks = []; // 收集流式响应（用于 debug=high 日志）
 
@@ -580,7 +587,7 @@ export async function streamGeminiContent(model, requestBody, token, onChunk) {
   const startTime = Date.now();
   log.backend({
     type: 'request',
-    url: config.api.url,
+    url: endpointConfig.url,
     method: 'POST',
     headers,
     body: payload
@@ -589,7 +596,7 @@ export async function streamGeminiContent(model, requestBody, token, onChunk) {
   try {
     await withRequesterFallback(async currentUseAxios => withRetry(async () => {
       if (currentUseAxios) {
-        const axiosConfig = { ...buildAxiosConfig(config.api.url, headers, payload), responseType: 'stream' };
+        const axiosConfig = { ...buildAxiosConfig(endpointConfig.url, headers, payload), responseType: 'stream' };
         const response = await axios(axiosConfig);
 
         response.data.on('data', chunk => {
@@ -605,7 +612,7 @@ export async function streamGeminiContent(model, requestBody, token, onChunk) {
       }
 
       const streamResponse = requester.antigravity_fetchStream(
-        config.api.url,
+        endpointConfig.url,
         buildRequesterConfig(headers, payload)
       );
       let errorBody = '';
@@ -649,14 +656,16 @@ export async function streamGeminiContent(model, requestBody, token, onChunk) {
 }
 
 export async function generateGeminiContent(model, requestBody, token) {
-  const headers = buildHeaders(token);
+  // 获取当前请求应使用的端点配置（支持轮询）
+  const endpointConfig = getActiveEndpointConfig();
+  const headers = buildHeaders(token, endpointConfig);
   const payload = buildGeminiRequest(model, requestBody, token);
 
   // 记录后端请求
   const startTime = Date.now();
   log.backend({
     type: 'request',
-    url: config.api.noStreamUrl,
+    url: endpointConfig.noStreamUrl,
     method: 'POST',
     headers,
     body: payload
@@ -665,11 +674,11 @@ export async function generateGeminiContent(model, requestBody, token) {
   try {
     const data = await withRequesterFallback(async currentUseAxios => withRetry(async () => {
       if (currentUseAxios) {
-        return (await axios(buildAxiosConfig(config.api.noStreamUrl, headers, payload))).data;
+        return (await axios(buildAxiosConfig(endpointConfig.noStreamUrl, headers, payload))).data;
       }
 
       const response = await requester.antigravity_fetch(
-        config.api.noStreamUrl,
+        endpointConfig.noStreamUrl,
         buildRequesterConfig(headers, payload)
       );
       const bodyText = await response.text();

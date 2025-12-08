@@ -14,7 +14,7 @@ import {
 } from '../api/client.js';
 import { generateRequestBody } from '../utils/utils.js';
 import logger from '../utils/logger.js';
-import config from '../config/config.js';
+import config, { getAvailableEndpoints, getCurrentEndpoint, setEndpoint, getEndpointMode, setEndpointMode, getEndpointStatus } from '../config/config.js';
 import tokenManager from '../auth/token_manager.js';
 import { buildAuthUrl, exchangeCodeForToken } from '../auth/oauth_client.js';
 import {
@@ -990,6 +990,63 @@ app.get('/admin/settings', requirePanelAuthApi, (req, res) => {
     updatedAt: new Date().toISOString(),
     groups: buildSettingsSummary()
   });
+});
+
+// ===== API 端点管理 =====
+
+// 获取可用端点列表、当前端点和模式
+app.get('/admin/endpoints', requirePanelAuthApi, (req, res) => {
+  const status = getEndpointStatus();
+  res.json({
+    endpoints: getAvailableEndpoints(),
+    current: status.currentEndpoint,
+    mode: status.mode,
+    roundRobinEndpoints: status.roundRobinEndpoints,
+    updatedAt: new Date().toISOString()
+  });
+});
+
+// 切换端点
+app.post('/admin/endpoints', requirePanelAuthApi, (req, res) => {
+  const { endpoint } = req.body || {};
+
+  if (!endpoint) {
+    return res.status(400).json({ error: '缺少 endpoint 参数' });
+  }
+
+  const result = setEndpoint(endpoint);
+
+  if (result.success) {
+    return res.json({
+      success: true,
+      current: result.current,
+      message: `已切换到 ${result.current.label}`
+    });
+  }
+
+  return res.status(400).json({ error: result.error });
+});
+
+// 切换端点模式（fixed / round-robin）
+app.post('/admin/endpoints/mode', requirePanelAuthApi, (req, res) => {
+  const { mode } = req.body || {};
+
+  if (!mode) {
+    return res.status(400).json({ error: '缺少 mode 参数' });
+  }
+
+  const result = setEndpointMode(mode);
+
+  if (result.success) {
+    const modeLabel = mode === 'round-robin' ? '自动轮询' : '固定端点';
+    return res.json({
+      success: true,
+      mode: result.mode,
+      message: `已切换到${modeLabel}模式`
+    });
+  }
+
+  return res.status(400).json({ error: result.error });
 });
 
 app.get('/admin/panel-config', requirePanelAuthApi, (req, res) => {

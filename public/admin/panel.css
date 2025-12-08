@@ -317,9 +317,20 @@ button:disabled {
   margin-left: 6px;
 }
 
-.badge-success { background: var(--status-ok-bg); color: var(--status-ok-text); }
-.badge-error { background: var(--status-off-bg); color: var(--status-off-text); }
-.badge-info { background: var(--info-bg); color: var(--info-text); }
+.badge-success {
+  background: var(--status-ok-bg);
+  color: var(--status-ok-text);
+}
+
+.badge-error {
+  background: var(--status-off-bg);
+  color: var(--status-off-text);
+}
+
+.badge-info {
+  background: var(--info-bg);
+  color: var(--info-text);
+}
 
 .accounts-list {
   margin-top: 8px;
@@ -621,8 +632,15 @@ button:disabled {
   border: 1px solid var(--border);
 }
 
-.log-success { background: var(--log-success-bg); border-color: var(--log-success-border); }
-.log-fail { background: var(--log-fail-bg); border-color: var(--log-fail-border); }
+.log-success {
+  background: var(--log-success-bg);
+  border-color: var(--log-success-border);
+}
+
+.log-fail {
+  background: var(--log-fail-bg);
+  border-color: var(--log-fail-border);
+}
 
 .log-content {
   display: flex;
@@ -848,6 +866,7 @@ button:disabled {
 }
 
 @media (max-width: 640px) {
+
   .account-item,
   .card-header,
   .header {
@@ -900,4 +919,59 @@ button:disabled {
     flex-direction: column;
     gap: 8px;
   }
+}
+
+/* ===== API 端点选择器 ===== */
+
+.endpoint-selector {
+  background: var(--subtle-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.endpoint-selector-header {
+  margin-bottom: 12px;
+}
+
+.endpoint-selector-header h3 {
+  margin: 4px 0;
+  font-size: 16px;
+  color: var(--text);
+}
+
+.endpoint-selector-header p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.endpoint-selector-body {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.endpoint-selector-body .select {
+  flex: 1;
+  min-width: 200px;
+}
+
+.endpoint-selector-body .refresh-btn {
+  flex-shrink: 0;
+}
+
+.endpoint-mode-row {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: 8px;
+}
+
+.endpoint-mode-row .checkbox-row {
+  margin: 0;
+  font-weight: 500;
 }
