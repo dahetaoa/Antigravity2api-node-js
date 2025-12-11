@@ -79,7 +79,16 @@ const config = {
   useNativeAxios: process.env.USE_NATIVE_AXIOS !== 'false',
   timeout: parseInt(process.env.TIMEOUT) || 30000,
   proxy: process.env.PROXY || null,
-  systemInstruction: process.env.SYSTEM_INSTRUCTION || ''
+  systemInstruction: process.env.SYSTEM_INSTRUCTION || '',
+  // 图片输出设置
+  imageSettings: {
+    // 输出模式: 'base64' (直接返回Data URL) 或 'url' (保存到本地返回HTTP URL)
+    outputMode: process.env.IMAGE_OUTPUT_MODE || 'base64',
+    // URL模式时的图片访问基础地址
+    baseUrl: process.env.IMAGE_BASE_URL || null,
+    // URL模式时最大保存图片数量
+    maxImages: parseInt(process.env.MAX_IMAGES, 10) || 10
+  }
 };
 
 // ===== API 端点预设和动态切换 =====
@@ -265,10 +274,71 @@ export function getEndpointStatus() {
   };
 }
 
+// ===== 图片设置函数 =====
+
+/**
+ * 获取当前图片设置
+ */
+export function getImageSettings() {
+  const settings = loadSettingsFromFile();
+  return {
+    outputMode: settings.imageOutputMode || config.imageSettings.outputMode,
+    baseUrl: settings.imageBaseUrl || config.imageSettings.baseUrl,
+    maxImages: settings.imageMaxImages || config.imageSettings.maxImages
+  };
+}
+
+/**
+ * 更新图片设置
+ */
+export function setImageSettings(updates) {
+  const validModes = ['base64', 'url'];
+  const result = { success: true, changes: {} };
+
+  if (updates.outputMode !== undefined) {
+    if (!validModes.includes(updates.outputMode)) {
+      return { success: false, error: `无效的输出模式: ${updates.outputMode}，有效值为: base64, url` };
+    }
+    saveSettingsToFile({ imageOutputMode: updates.outputMode });
+    config.imageSettings.outputMode = updates.outputMode;
+    result.changes.outputMode = updates.outputMode;
+  }
+
+  if (updates.baseUrl !== undefined) {
+    saveSettingsToFile({ imageBaseUrl: updates.baseUrl || null });
+    config.imageSettings.baseUrl = updates.baseUrl || null;
+    result.changes.baseUrl = updates.baseUrl;
+  }
+
+  if (updates.maxImages !== undefined) {
+    const maxImages = parseInt(updates.maxImages, 10);
+    if (isNaN(maxImages) || maxImages < 1) {
+      return { success: false, error: '最大图片数量必须是大于0的整数' };
+    }
+    saveSettingsToFile({ imageMaxImages: maxImages });
+    config.imageSettings.maxImages = maxImages;
+    result.changes.maxImages = maxImages;
+  }
+
+  log.info(`✓ 图片设置已更新: ${JSON.stringify(result.changes)}`);
+  return result;
+}
+
+// 初始化时从 settings.json 加载图片设置
+const savedImageSettings = loadSettingsFromFile();
+if (savedImageSettings.imageOutputMode) {
+  config.imageSettings.outputMode = savedImageSettings.imageOutputMode;
+}
+if (savedImageSettings.imageBaseUrl) {
+  config.imageSettings.baseUrl = savedImageSettings.imageBaseUrl;
+}
+if (savedImageSettings.imageMaxImages) {
+  config.imageSettings.maxImages = savedImageSettings.imageMaxImages;
+}
+
 log.info('✓ 配置加载成功');
 log.info(`✓ 端点模式: ${endpointMode === 'round-robin' ? '自动轮询' : '固定端点'}`);
 log.info(`✓ 当前端点: ${API_ENDPOINTS[currentEndpointKey].label}`);
+log.info(`✓ 图片输出模式: ${config.imageSettings.outputMode}`);
 
 export default config;
-
-

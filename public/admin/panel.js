@@ -1060,10 +1060,80 @@ if (roundRobinToggle) {
   roundRobinToggle.addEventListener('change', toggleEndpointMode);
 }
 
+// ===== 图片设置 =====
+
+const imageOutputModeSelect = document.getElementById('imageOutputModeSelect');
+const imageBaseUrlInput = document.getElementById('imageBaseUrlInput');
+const imageMaxImagesInput = document.getElementById('imageMaxImagesInput');
+const imageBaseUrlRow = document.getElementById('imageBaseUrlRow');
+const imageMaxImagesRow = document.getElementById('imageMaxImagesRow');
+const saveImageSettingsBtn = document.getElementById('saveImageSettingsBtn');
+const imageSettingsStatusEl = document.getElementById('imageSettingsStatus');
+
+function updateImageSettingsUI() {
+  if (!imageOutputModeSelect) return;
+  const isUrlMode = imageOutputModeSelect.value === 'url';
+  if (imageBaseUrlRow) imageBaseUrlRow.style.display = isUrlMode ? 'block' : 'none';
+  if (imageMaxImagesRow) imageMaxImagesRow.style.display = isUrlMode ? 'block' : 'none';
+}
+
+async function loadImageSettings() {
+  if (!imageOutputModeSelect) return;
+
+  try {
+    const data = await fetchJson('/admin/image-settings');
+    imageOutputModeSelect.value = data.outputMode || 'base64';
+    if (imageBaseUrlInput) imageBaseUrlInput.value = data.baseUrl || '';
+    if (imageMaxImagesInput) imageMaxImagesInput.value = data.maxImages || 10;
+    updateImageSettingsUI();
+  } catch (e) {
+    console.warn('加载图片设置失败:', e.message);
+  }
+}
+
+async function saveImageSettings() {
+  if (!saveImageSettingsBtn) return;
+
+  const updates = {
+    outputMode: imageOutputModeSelect?.value || 'base64'
+  };
+
+  if (imageOutputModeSelect?.value === 'url') {
+    updates.baseUrl = imageBaseUrlInput?.value || '';
+    updates.maxImages = parseInt(imageMaxImagesInput?.value, 10) || 10;
+  }
+
+  try {
+    saveImageSettingsBtn.disabled = true;
+    saveImageSettingsBtn.textContent = '保存中...';
+    setStatus('正在保存图片设置...', 'info', imageSettingsStatusEl);
+
+    const result = await fetchJson('/admin/image-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    });
+
+    setStatus(`✓ ${result.message || '保存成功'}`, 'success', imageSettingsStatusEl);
+  } catch (e) {
+    setStatus('保存失败: ' + e.message, 'error', imageSettingsStatusEl);
+  } finally {
+    saveImageSettingsBtn.textContent = '💾 保存图片设置';
+    saveImageSettingsBtn.disabled = false;
+  }
+}
+
+if (imageOutputModeSelect) {
+  imageOutputModeSelect.addEventListener('change', updateImageSettingsUI);
+}
+
+if (saveImageSettingsBtn) {
+  saveImageSettingsBtn.addEventListener('click', saveImageSettings);
+}
+
 refreshAccounts();
 loadLogs();
 loadHourlyUsage();
 loadSettings();
 loadEndpoints();
-
-
+loadImageSettings();

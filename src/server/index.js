@@ -14,7 +14,7 @@ import {
 } from '../api/client.js';
 import { generateRequestBody } from '../utils/utils.js';
 import logger from '../utils/logger.js';
-import config, { getAvailableEndpoints, getCurrentEndpoint, setEndpoint, getEndpointMode, setEndpointMode, getEndpointStatus } from '../config/config.js';
+import config, { getAvailableEndpoints, getCurrentEndpoint, setEndpoint, getEndpointMode, setEndpointMode, getEndpointStatus, getImageSettings, setImageSettings } from '../config/config.js';
 import tokenManager from '../auth/token_manager.js';
 import { buildAuthUrl, exchangeCodeForToken } from '../auth/oauth_client.js';
 import {
@@ -30,6 +30,7 @@ import {
   convertToGeminiModelList,
   transformStreamLine
 } from '../utils/geminiAdapter.js';
+import { getImageDir } from '../utils/imageStorage.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1043,6 +1044,47 @@ app.post('/admin/endpoints/mode', requirePanelAuthApi, (req, res) => {
       success: true,
       mode: result.mode,
       message: `已切换到${modeLabel}模式`
+    });
+  }
+
+  return res.status(400).json({ error: result.error });
+});
+
+// ===== 图片设置 API =====
+
+// 图片静态文件路由（URL模式时用于访问保存的图片）
+app.use('/images', express.static(getImageDir()));
+
+// 获取图片设置
+app.get('/admin/image-settings', requirePanelAuthApi, (req, res) => {
+  const settings = getImageSettings();
+  res.json({
+    ...settings,
+    updatedAt: new Date().toISOString()
+  });
+});
+
+// 更新图片设置
+app.post('/admin/image-settings', requirePanelAuthApi, (req, res) => {
+  const { outputMode, baseUrl, maxImages } = req.body || {};
+
+  const updates = {};
+  if (outputMode !== undefined) updates.outputMode = outputMode;
+  if (baseUrl !== undefined) updates.baseUrl = baseUrl;
+  if (maxImages !== undefined) updates.maxImages = maxImages;
+
+  if (Object.keys(updates).length === 0) {
+    return res.status(400).json({ error: '未提供任何要更新的设置' });
+  }
+
+  const result = setImageSettings(updates);
+
+  if (result.success) {
+    return res.json({
+      success: true,
+      settings: getImageSettings(),
+      changes: result.changes,
+      message: '图片设置已更新'
     });
   }
 

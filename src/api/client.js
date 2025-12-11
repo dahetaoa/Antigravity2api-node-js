@@ -1,9 +1,10 @@
 import axios from 'axios';
 import tokenManager from '../auth/token_manager.js';
-import config, { getActiveEndpointConfig } from '../config/config.js';
+import config, { getActiveEndpointConfig, getImageSettings } from '../config/config.js';
 import { generateRequestId, generateToolCallId } from '../utils/idGenerator.js';
 import AntigravityRequester from '../AntigravityRequester.js';
 import log from '../utils/logger.js';
+import { saveBase64Image } from '../utils/imageStorage.js';
 
 // 请求客户端：优先使用 AntigravityRequester，失败则降级到 axios
 let requester = null;
@@ -551,8 +552,16 @@ export async function generateAssistantResponseNoStream(requestBody, token) {
     } else if (part.functionCall) {
       toolCalls.push(convertToToolCall(part.functionCall));
     } else if (part.inlineData) {
-      // 直接使用 base64 Data URL，无需保存到本地
-      const imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+      // 根据配置选择图片输出模式
+      const imageSettings = getImageSettings();
+      let imageUrl;
+      if (imageSettings.outputMode === 'url') {
+        // URL模式：保存到本地并返回HTTP URL
+        imageUrl = saveBase64Image(part.inlineData.data, part.inlineData.mimeType);
+      } else {
+        // Base64模式：直接返回Data URL
+        imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+      }
       imageUrls.push(imageUrl);
     }
   }
@@ -582,6 +591,83 @@ export async function streamGeminiContent(model, requestBody, token, onChunk) {
   const headers = buildHeaders(token, endpointConfig);
   const payload = buildGeminiRequest(model, requestBody, token);
   let streamChunks = []; // 收集流式响应（用于 debug=high 日志）
+  let buffer = ''; // 缓冲区：处理跨 chunk 的不完整行
+  const seenImageHashes = new Set(); // 用于去重图片
+
+  // 处理并转换流式数据行
+  const processAndSendLine = (line) => {
+    if (!line.startsWith('data: ')) {
+      onChunk(line + '\n');
+      return;
+    }
+
+    try {
+      const data = JSON.parse(line.slice(6));
+      let geminiData = data.response ? data.response : data;
+
+      // 处理 candidates 中的 parts，进行图片去重和清理非标准字段
+      if (geminiData.candidates && Array.isArray(geminiData.candidates)) {
+        geminiData = {
+          ...geminiData,
+          candidates: geminiData.candidates.map((candidate, idx) => {
+            if (!candidate?.content?.parts) return { ...candidate, index: candidate.index ?? idx };
+
+            // 过滤重复的图片
+            const filteredParts = candidate.content.parts.filter(part => {
+              if (part.inlineData?.data) {
+                // 使用前100个字符作为简单的图片指纹
+                const imageHash = part.inlineData.data.substring(0, 100);
+                if (seenImageHashes.has(imageHash)) {
+                  return false; // 跳过重复图片
+                }
+                seenImageHashes.add(imageHash);
+              }
+              return true;
+            });
+
+            // 清理非标准字段：移除 thoughtSignature，但保留原始图片格式
+            const processedParts = filteredParts.map(part => {
+              const { thoughtSignature, ...cleanPart } = part;
+              // 如果是图片，移除 thought 标记（图片不应该是 thought）
+              if (cleanPart.inlineData) {
+                delete cleanPart.thought;
+              }
+              return cleanPart;
+            });
+
+            return {
+              ...candidate,
+              index: candidate.index ?? idx,
+              content: {
+                ...candidate.content,
+                parts: processedParts
+              }
+            };
+          })
+        };
+      }
+
+      onChunk(`data: ${JSON.stringify(geminiData)}\n`);
+    } catch (e) {
+      // JSON 解析失败，原样发送
+      onChunk(line + '\n');
+    }
+  };
+
+  // 处理接收到的 chunk
+  const processChunk = (chunkStr) => {
+    buffer += chunkStr;
+    const lines = buffer.split('\n');
+    buffer = lines.pop(); // 保留最后一行（可能不完整）
+
+    for (const line of lines) {
+      if (line.trim()) {
+        processAndSendLine(line);
+      } else {
+        onChunk('\n');
+      }
+    }
+  };
 
   // 记录后端请求
   const startTime = Date.now();
@@ -602,10 +688,16 @@ export async function streamGeminiContent(model, requestBody, token, onChunk) {
         response.data.on('data', chunk => {
           const chunkStr = chunk.toString();
           streamChunks.push(chunkStr);
-          onChunk(chunkStr);
+          processChunk(chunkStr);
         });
         await new Promise((resolve, reject) => {
-          response.data.on('end', resolve);
+          response.data.on('end', () => {
+            // 处理剩余缓冲区
+            if (buffer.trim()) {
+              processAndSendLine(buffer);
+            }
+            resolve();
+          });
           response.data.on('error', reject);
         });
         return;
@@ -628,10 +720,20 @@ export async function streamGeminiContent(model, requestBody, token, onChunk) {
               errorBody += chunk;
             } else {
               streamChunks.push(chunk);
-              onChunk(chunk);
+              processChunk(chunk);
             }
           })
-          .onEnd(() => (statusCode !== 200 ? reject({ status: statusCode, message: errorBody }) : resolve()))
+          .onEnd(() => {
+            if (statusCode !== 200) {
+              reject({ status: statusCode, message: errorBody });
+            } else {
+              // 处理剩余缓冲区
+              if (buffer.trim()) {
+                processAndSendLine(buffer);
+              }
+              resolve();
+            }
+          })
           .onError(reject);
       });
     }, token));

@@ -77,6 +77,12 @@ function sanitizePart(part) {
 
     // 复制 part 对象，排除 thoughtSignature 字段
     const { thoughtSignature, ...cleanPart } = part;
+
+    // 如果是图片，移除 thought 标记（图片不应该是 thought）
+    if (cleanPart.inlineData) {
+        delete cleanPart.thought;
+    }
+
     return cleanPart;
 }
 

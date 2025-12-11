@@ -10,6 +10,10 @@ services:
       - PANEL_PASSWORD=password
       - API_KEY=sk-123456
       # - DEBUG=low # options: low, high
+      # 图片输出配置
+      # - IMAGE_OUTPUT_MODE=url        # 可选: base64(默认), url
+      # - IMAGE_BASE_URL=http://your-domain.com:8045  # URL模式时的图片访问地址
+      # - MAX_IMAGES=10                # URL模式时最大保存图片数量
     volumes:
       - ./data:/app/data
     healthcheck:

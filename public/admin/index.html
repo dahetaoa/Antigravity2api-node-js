@@ -206,6 +206,38 @@
           <span id="endpointStatus" class="badge" style="display:none;"></span>
         </div>
       </div>
+
+      <div class="endpoint-selector">
+        <div class="endpoint-selector-header">
+          <div class="eyebrow">图片输出</div>
+          <h3>图片传输设置</h3>
+          <p>选择生成图片的传输方式：Base64 直接嵌入或保存到本地返回 URL。</p>
+        </div>
+        <div class="image-settings-body">
+          <div class="setting-row">
+            <label class="setting-label">输出模式</label>
+            <select id="imageOutputModeSelect" class="input select">
+              <option value="base64">Base64（直接嵌入响应）</option>
+              <option value="url">URL（保存到本地）</option>
+            </select>
+          </div>
+          <div class="setting-row" id="imageBaseUrlRow" style="display:none;">
+            <label class="setting-label">图片访问地址</label>
+            <input id="imageBaseUrlInput" type="text" class="input" placeholder="例如: http://your-domain.com:8045" />
+            <p class="setting-hint">URL模式时，客户端访问图片的基础地址。留空则自动使用服务器IP。</p>
+          </div>
+          <div class="setting-row" id="imageMaxImagesRow" style="display:none;">
+            <label class="setting-label">最大图片数量</label>
+            <input id="imageMaxImagesInput" type="number" class="input" min="1" max="100" value="10" />
+            <p class="setting-hint">URL模式时，本地最多保留的图片数量，超出会自动删除旧图片。</p>
+          </div>
+          <div class="inline-row">
+            <button id="saveImageSettingsBtn" class="refresh-btn">💾 保存图片设置</button>
+            <span id="imageSettingsStatus" class="badge" style="display:none;"></span>
+          </div>
+        </div>
+      </div>
+
       <div id="settingsGrid" class="settings-grid">加载中...</div>
     </section>
 
